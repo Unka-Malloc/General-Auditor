@@ -56,7 +56,20 @@ jobs:
           path: out/result/result.json
           retention-days: 30
           if-no-files-found: error
-      - name: Surface incomplete scans after saving their evidence
+      - name: Surface policy failures or incomplete scans after saving their evidence
         env:
           SCAN_EXIT: ${{ steps.scan.outputs.exit_code }}
         run: test "$SCAN_EXIT" = 0
+  notify:
+    needs: scan
+    if: always() && github.ref == 'refs/heads/only'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Request publication without waiting for the report writer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '{"ref":"only","inputs":{"source_run_id":"%s"}}' "$GITHUB_RUN_ID" |
+            gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/publish-report.yml/dispatches" --input -

@@ -68,7 +68,8 @@ class AccessPolicyTests(unittest.TestCase):
         self.assertEqual(result["incomplete"], 0)
         self.assertEqual(ledger["runs"][0]["status"], "completed_with_warnings")
         self.assertEqual(ledger["runs"][0]["findings"][0]["judgment"], "unverified")
-        self.assertIn('href="https://github.com/LicoLand/A/settings"', html)
+        self.assertEqual(ledger["runs"][0]["findings"][0]["source"], "github-settings")
+        self.assertIn('data-repository="LicoLand/A"', html)
 
     def test_admin_tool_is_read_only_by_default_and_preserves_unrelated_rules(self):
         path = Path(__file__).resolve().parents[1] / "tools/configure_access.py"

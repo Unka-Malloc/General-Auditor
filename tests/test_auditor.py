@@ -14,7 +14,7 @@ from general_auditor.cli import main
 from general_auditor.config import default_profile, initialize, load_profile, repository_name, validate_profile
 from general_auditor.github import APIError, GitHub
 from general_auditor.gitdata import git
-from general_auditor.report import merge, publish, write_json
+from general_auditor.report import merge, publish, unpack_report, write_json
 from general_auditor.runner import execute, plan, run
 from general_auditor.scanner import BlobAnalysis, scan
 from general_auditor.rules import selected_rules
@@ -143,7 +143,9 @@ class GitFixture(unittest.TestCase):
         self.assertNotIn(secret, html)
         self.assertNotIn(secret, (self.root / "reports/data.json").read_text())
         self.assertNotIn("<script>alert(1)", html)
-        self.assertIn("&lt;script&gt;alert(1)", html)
+        payload = html.split('<script id="audit-data" type="application/json">', 1)[1].split('</script>', 1)[0]
+        packed = json.loads(payload)
+        self.assertEqual(unpack_report(packed), json.loads((self.root / "reports/data.json").read_text()))
 
     def test_blob_analysis_is_reused_across_heads_without_losing_commit_locations(self):
         self.save("settings", 'password="SYNTHETIC_INVALID_PASSWORD"')
@@ -179,6 +181,7 @@ class GitFixture(unittest.TestCase):
         self.assertNotIn("SYNTHETIC_WORKER_SIGNAL", json.dumps(ledger))
         state = json.loads((self.root / "reports/state.json").read_text())
         self.assertEqual(state["observations"], {candidate["key"]: head})
+        self.assertTrue((self.root / "reports/index.html").is_file())
 
     def test_failed_policy_artifact_round_trip_restores_worker_and_publisher(self):
         from io import BytesIO
@@ -220,7 +223,10 @@ class GitFixture(unittest.TestCase):
         api, actions = GitHub(token=''), ArtifactStore()
         with patch.object(api, 'repositories', return_value=inventory), patch.object(api, 'candidates', return_value=[candidate]), \
                 patch('general_auditor.runner.public_repository', return_value=nullcontext(self.repo)) as fetch, redirect_stdout(io.StringIO()):
-            result = audit(self.root, repository, api=api, actions=actions)
+            with patch('general_auditor.report.render', side_effect=AssertionError('Artifact workers must not render HTML')) as render:
+                result = audit(self.root, repository, api=api, actions=actions)
+            render.assert_not_called()
+            self.assertFalse((self.root / 'reports/index.html').exists())
             self.assertEqual(result['policy_failures'], 1)
             packet = json.loads((self.root / 'out/result/result.json').read_text())
             self.assertEqual(packet['runs'][0]['status'], 'policy_failure')
@@ -232,7 +238,9 @@ class GitFixture(unittest.TestCase):
             checkpoint = {name: json.loads((reports / name).read_text()) for name in ('data.json', 'state.json', 'inventory.json')}
             actions.add('audit-checkpoint', checkpoint)
             recovered = self.root / 'recovered-worker'
-            second = audit(recovered, repository, api=api, actions=actions)
+            with patch('general_auditor.report.render', side_effect=AssertionError('Recovered workers must not render HTML')) as render:
+                second = audit(recovered, repository, api=api, actions=actions)
+            render.assert_not_called()
             self.assertEqual(second['scans'], 0)
             retained = json.loads((recovered / 'out/result/result.json').read_text())
             self.assertEqual(retained['runs'], packet['runs'])
