@@ -62,8 +62,6 @@ def run(root, *, repository=None, watch=False, workers=4, api=None):
     candidates = []
     seen_keys = set()
     selected = [row for row in inventory if watch or repository == "all" or repository == row["repository"]]
-    for row in inventory:
-        initialize(root, row["repository"], profile_only=True)
     for row in selected:
         try:
             discovered = api.candidates(row["repository"], row["default_branch"])
@@ -75,6 +73,14 @@ def run(root, *, repository=None, watch=False, workers=4, api=None):
         except APIError:
             results.append(failed_result(row["repository"], None, "discovery", "metadata_unavailable"))
     jobs = plan(candidates, observations, force=not watch)
+    invalid = set()
+    for name in sorted({job["repository"] for job in jobs}):
+        try:
+            initialize(root, name, profile_only=True)
+        except (ValueError, OSError):
+            invalid.add(name)
+            results.append(failed_result(name, None, "configuration", "invalid_repository_profile"))
+    jobs = [job for job in jobs if job["repository"] not in invalid]
     with ThreadPoolExecutor(max_workers=workers) as pool:
         pending = {pool.submit(execute, job, root): job for job in jobs}
         for future in as_completed(pending):

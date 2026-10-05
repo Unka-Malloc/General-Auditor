@@ -214,9 +214,26 @@ class DiscoveryTests(unittest.TestCase):
         api = GitHub(token="")
         inventory = [{"repository": "LicoLand/" + name, "default_branch": "main", "archived": False, "visibility": "public"} for name in ["A", "B"]]
         with tempfile.TemporaryDirectory() as directory, patch.object(api, "repositories", return_value=inventory), patch.object(api, "candidates", return_value=[]) as candidates:
+            other = Path(directory) / "profiles/LicoLand/B.json"
+            other.parent.mkdir(parents=True)
+            other.write_text("invalid unrelated profile")
             result = run(directory, repository="LicoLand/A", api=api)
         candidates.assert_called_once_with("LicoLand/A", "main")
         self.assertEqual(result["repositories"], 1)
+
+    def test_bad_selected_profile_does_not_block_other_selected_repositories(self):
+        api = GitHub(token="")
+        inventory = [{"repository": "LicoLand/" + name, "default_branch": "main", "archived": False, "visibility": "public"} for name in ["A", "B"]]
+        candidates = [[{"repository": row["repository"], "key": row["repository"] + ":empty", "head": None, "base": None, "trigger": "empty_repository"}] for row in inventory]
+        with tempfile.TemporaryDirectory() as directory, patch.object(api, "repositories", return_value=inventory), patch.object(api, "candidates", side_effect=candidates), redirect_stdout(io.StringIO()):
+            broken = Path(directory) / "profiles/LicoLand/B.json"
+            broken.parent.mkdir(parents=True)
+            broken.write_text("invalid selected profile")
+            result = run(directory, repository="all", api=api)
+            ledger = json.loads((Path(directory) / "reports/data.json").read_text())
+        self.assertEqual(result["incomplete"], 1)
+        statuses = {row["repository"]: row["status"] for row in ledger["runs"]}
+        self.assertEqual(statuses, {"LicoLand/A": "completed", "LicoLand/B": "incomplete"})
 
     def test_pagination_and_private_inventory_exclusion(self):
         api = GitHub(token="")
