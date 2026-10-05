@@ -13,5 +13,10 @@
     "Review implementation behavior against the declared normative LicoArc contract.",
     "Review parsing, key custody, cryptographic API use and interoperability fixtures with synthetic inputs."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true,
+    "data_profile": "licoarc",
+    "documentation_profile": "lico-project"
+  }
 }

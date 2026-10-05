@@ -1,6 +1,6 @@
 """Deterministic acceptance coverage using only synthetic temporary repositories."""
 
-from contextlib import redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 from datetime import datetime, timedelta, timezone
 import io
 import json
@@ -16,7 +16,8 @@ from general_auditor.github import APIError, GitHub
 from general_auditor.gitdata import git
 from general_auditor.report import merge, publish, write_json
 from general_auditor.runner import execute, plan, run
-from general_auditor.scanner import scan
+from general_auditor.scanner import BlobAnalysis, scan
+from general_auditor.rules import selected_rules
 
 
 class GitFixture(unittest.TestCase):
@@ -50,7 +51,7 @@ class GitFixture(unittest.TestCase):
         result = self.audit(profile={**default_profile("SymPolicy/Synthetic"), "additional_rule_groups": []})
         self.assertEqual(result["status"], "completed_with_warnings")
         self.assertEqual(result["findings"][0]["line"], 1)
-        self.assertEqual(result["findings"][0]["rule"], "privacy.credential-binding")
+        self.assertEqual(result["findings"][0]["rule"], "privacy.credential.binding")
         self.assertEqual(result["findings"][0]["judgment"], "unreviewed")
         self.assertNotIn(secret, json.dumps(result))
         self.assertEqual(result["agent_review"], "not_performed")
@@ -95,8 +96,8 @@ class GitFixture(unittest.TestCase):
         self.save("danger.py", 'raise RuntimeError("target code must never execute")\n')
         self.commit()
         result = self.audit()
-        self.assertEqual(len(result["coverage"]["excluded"]), 4)
-        self.assertEqual(result["coverage"]["text_versions"], 1)
+        self.assertEqual(len(result["coverage"]["excluded"]), 3)
+        self.assertEqual(result["coverage"]["text_versions"], 2)
         self.assertEqual(result["findings"], [])
         self.assertNotIn(str(self.root), json.dumps(result))
 
@@ -143,6 +144,100 @@ class GitFixture(unittest.TestCase):
         self.assertNotIn(secret, (self.root / "reports/data.json").read_text())
         self.assertNotIn("<script>alert(1)", html)
         self.assertIn("&lt;script&gt;alert(1)", html)
+
+    def test_blob_analysis_is_reused_across_heads_without_losing_commit_locations(self):
+        self.save("settings", 'password="SYNTHETIC_INVALID_PASSWORD"')
+        first = self.commit()
+        self.save("other", "synthetic branch change")
+        second = self.commit()
+        with BlobAnalysis(self.repo, selected_rules([])) as analysis:
+            original = self.audit(head=first, analysis=analysis)
+            updated = self.audit(head=second, analysis=analysis)
+            self.assertGreaterEqual(analysis.inspect.cache_info().hits, 1)
+            self.assertEqual(original["findings"][0]["commit"], first)
+            self.assertEqual(updated["findings"][0]["commit"], second)
+            self.assertEqual(original["findings"][0]["evidence"], updated["findings"][0]["evidence"])
+
+    def test_repository_worker_scans_real_git_objects_and_persists_its_result(self):
+        self.save("source.txt", 'password="SYNTHETIC_WORKER_SIGNAL"\n')
+        head = self.commit()
+        repository = "SymPolicy/Synthetic"
+        candidate = {"repository": repository, "key": repository + ":branch:main",
+                     "head": head, "base": None, "trigger": "branch"}
+        api = GitHub(token="")
+        inventory = [{"repository": repository, "default_branch": "main", "visibility": "public", "archived": False}]
+        with patch.object(api, "repositories", return_value=inventory), patch.object(api, "candidates", return_value=[candidate]), \
+                patch("general_auditor.runner.public_repository", return_value=nullcontext(self.repo)) as fetch, \
+                redirect_stdout(io.StringIO()):
+            result = run(self.root, repository=repository, api=api)
+        fetch.assert_called_once()
+        self.assertEqual(result["scans"], 1)
+        self.assertEqual(result["incomplete"], 0)
+        ledger = json.loads((self.root / "reports/data.json").read_text())
+        self.assertEqual(ledger["runs"][0]["status"], "completed_with_warnings")
+        self.assertEqual(ledger["runs"][0]["findings"][0]["commit"], head)
+        self.assertNotIn("SYNTHETIC_WORKER_SIGNAL", json.dumps(ledger))
+        state = json.loads((self.root / "reports/state.json").read_text())
+        self.assertEqual(state["observations"], {candidate["key"]: head})
+
+    def test_failed_policy_artifact_round_trip_restores_worker_and_publisher(self):
+        from io import BytesIO
+        from urllib.parse import parse_qs, urlsplit
+        from zipfile import ZipFile
+        from general_auditor.pipeline import Actions, audit, assemble, result_name
+
+        class ArtifactStore(Actions):
+            def __init__(self):
+                self.records, self.archives = [], {}
+
+            def add(self, name, members):
+                identity = len(self.records) + 1
+                buffer = BytesIO()
+                with ZipFile(buffer, 'w') as archive:
+                    for member, value in members.items():
+                        archive.writestr(member, json.dumps(value))
+                self.archives[identity] = buffer.getvalue()
+                self.records.append({'id': identity, 'name': name, 'expired': False,
+                    'created_at': datetime.now(timezone.utc).isoformat(),
+                    'workflow_run': {'id': identity, 'head_branch': 'only',
+                                     'head_repository_id': 1, 'repository_id': 1}})
+
+            def request(self, path, **kwargs):
+                if path.endswith('/zip'):
+                    return self.archives[int(path.split('/')[-2])]
+                name = parse_qs(urlsplit(path).query).get('name', [None])[0]
+                return {'artifacts': [row for row in self.records if name is None or row['name'] == name]}
+
+        self.save('source.env', 'password="SYNTHETIC_ARTIFACT_SIGNAL"\n')
+        head = self.commit()
+        repository = 'SymPolicy/Synthetic'
+        profile = default_profile(repository)
+        profile['required_paths'] = ['missing.contract']
+        write_json(self.root / 'profiles/SymPolicy/Synthetic.json', profile)
+        inventory = [{'repository': repository, 'default_branch': 'main', 'visibility': 'public', 'archived': False}]
+        candidate = {'repository': repository, 'key': repository + ':branch:main',
+                     'head': head, 'base': None, 'trigger': 'branch'}
+        api, actions = GitHub(token=''), ArtifactStore()
+        with patch.object(api, 'repositories', return_value=inventory), patch.object(api, 'candidates', return_value=[candidate]), \
+                patch('general_auditor.runner.public_repository', return_value=nullcontext(self.repo)) as fetch, redirect_stdout(io.StringIO()):
+            result = audit(self.root, repository, api=api, actions=actions)
+            self.assertEqual(result['policy_failures'], 1)
+            packet = json.loads((self.root / 'out/result/result.json').read_text())
+            self.assertEqual(packet['runs'][0]['status'], 'policy_failure')
+            actions.add(result_name(repository), {'result.json': packet})
+            publisher = self.root / 'publisher'
+            self.assertTrue(assemble(publisher, api=api, actions=actions)['changed'])
+            reports = publisher / 'reports'
+            self.assertNotIn('SYNTHETIC_ARTIFACT_SIGNAL', (reports / 'index.html').read_text())
+            checkpoint = {name: json.loads((reports / name).read_text()) for name in ('data.json', 'state.json', 'inventory.json')}
+            actions.add('audit-checkpoint', checkpoint)
+            recovered = self.root / 'recovered-worker'
+            second = audit(recovered, repository, api=api, actions=actions)
+            self.assertEqual(second['scans'], 0)
+            retained = json.loads((recovered / 'out/result/result.json').read_text())
+            self.assertEqual(retained['runs'], packet['runs'])
+            self.assertEqual(retained['observations'], packet['observations'])
+            fetch.assert_called_once()
 
 
 class PolicyAndReportTests(unittest.TestCase):
@@ -225,7 +320,7 @@ class DiscoveryTests(unittest.TestCase):
         api = GitHub(token="")
         inventory = [{"repository": "LicoLand/" + name, "default_branch": "main", "archived": False, "visibility": "public"} for name in ["A", "B"]]
         candidates = [[{"repository": row["repository"], "key": row["repository"] + ":empty", "head": None, "base": None, "trigger": "empty_repository"}] for row in inventory]
-        with tempfile.TemporaryDirectory() as directory, patch.object(api, "repositories", return_value=inventory), patch.object(api, "candidates", side_effect=candidates), redirect_stdout(io.StringIO()):
+        with tempfile.TemporaryDirectory() as directory, patch.object(api, "repositories", return_value=inventory), patch.object(api, "candidates", side_effect=lambda name, branch: next(items for items in candidates if items[0]["repository"] == name)), redirect_stdout(io.StringIO()):
             broken = Path(directory) / "profiles/LicoLand/B.json"
             broken.parent.mkdir(parents=True)
             broken.write_text("invalid selected profile")
@@ -266,7 +361,7 @@ class DiscoveryTests(unittest.TestCase):
         candidate = {"repository": repository, "key": repository + ":branch:main", "head": "a" * 40, "base": None, "trigger": "branch"}
         from general_auditor.scanner import failed_result
         failure = failed_result(repository, candidate["head"], "branch")
-        with tempfile.TemporaryDirectory() as directory, patch.object(api, "repositories", return_value=[item]), patch.object(api, "candidates", return_value=[candidate]), patch("general_auditor.runner.execute", return_value=failure) as execute, redirect_stdout(io.StringIO()):
+        with tempfile.TemporaryDirectory() as directory, patch.object(api, "repositories", return_value=[item]), patch.object(api, "candidates", return_value=[candidate]), patch("general_auditor.runner.audit_repository", return_value=([failure], {})) as execute, redirect_stdout(io.StringIO()):
             self.assertEqual(run(directory, watch=True, api=api)["incomplete"], 1)
             state = json.loads((Path(directory) / "reports/state.json").read_text())
             self.assertEqual(state["observations"], {})

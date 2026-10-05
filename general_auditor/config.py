@@ -5,6 +5,8 @@ from importlib.resources import files
 from pathlib import Path
 import re
 
+from .repository_policy import validate_policy_profile
+
 
 OWNERS = ("SymPolicy", "Meshrix-Platform", "LicoLand")
 REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
@@ -27,6 +29,9 @@ def default_profile(repository):
         "category": "unclassified",
         "additional_rule_groups": ["code", "dependencies", "workflows"],
         "required_paths": [],
+        "repository_policy": {},
+        "privacy_policy": {},
+        "privacy_exceptions": [],
         "local_review": [
             "Review privacy and credential findings in context before the first push.",
             "Review every outgoing commit, not only the final working tree.",
@@ -36,7 +41,10 @@ def default_profile(repository):
 
 
 def validate_profile(data, repository):
-    allowed = {"schema_version", "repository", "category", "additional_rule_groups", "required_paths", "local_review"}
+    allowed = {
+        "schema_version", "repository", "category", "additional_rule_groups", "required_paths",
+        "local_review", "repository_policy", "privacy_policy", "privacy_exceptions",
+    }
     if not isinstance(data, dict) or set(data) - allowed:
         raise ValueError("Invalid profile fields")
     if data.get("schema_version") != 1 or data.get("repository") != repository:
@@ -50,14 +58,16 @@ def validate_profile(data, repository):
         if not isinstance(data.get(key, []), list) or any(not isinstance(x, str) or not x for x in data.get(key, [])):
             raise ValueError("Invalid profile list")
     for path in data.get("required_paths", []):
-        if Path(path).is_absolute() or ".." in Path(path).parts or "\\" in path:
+        if Path(path).is_absolute() or ".." in Path(path).parts or "\\" in path or path.startswith("/"):
             raise ValueError("Required paths must be repository relative")
+    validate_policy_profile(data)
     return data
 
 
 def load_profile(root, repository):
     repository_name(repository)
-    path = Path(root) / "profiles" / (repository + ".json")
+    owner, name = repository.split("/", 1)
+    path = Path(root) / "profiles" / owner / (name + ".json")
     if path.exists():
         return validate_profile(json.loads(path.read_text()), repository), "repository"
     return default_profile(repository), "template"
@@ -66,7 +76,8 @@ def load_profile(root, repository):
 def initialize(root, repository, *, profile_only=False, with_workflow=False):
     """Create missing files only. No required source/docs layout, no overwrites."""
     root = Path(root)
-    destination = root / ("profiles/" + repository + ".json" if profile_only else ".general-auditor/config.json")
+    owner, name = repository.split("/", 1)
+    destination = root / ("profiles/" + owner + "/" + name + ".json" if profile_only else ".general-auditor/config.json")
     repository_name(repository)
     created = []
     if destination.exists():

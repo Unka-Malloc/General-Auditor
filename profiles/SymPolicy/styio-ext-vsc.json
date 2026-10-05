@@ -13,5 +13,280 @@
     "Review workspace trust, process spawning and extension permissions at the editor boundary.",
     "Check packaged extension resources and diagnostics for local workspace or credential disclosure."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default",
+    "resource_contracts": [
+      {
+        "id": "vscode_extension_surface",
+        "owner": "Editor Integration",
+        "description": "Owns extension activation, language grammar, snippets, LSP client wiring, and release packaging.",
+        "scope_globs": [
+          "package.json",
+          "src/**",
+          "syntaxes/**",
+          "snippets/**",
+          "scripts/**",
+          "test/**",
+          "docs/**",
+          ".github/workflows/**"
+        ],
+        "copying_policy": "Extension assets and release metadata must preserve license notices and avoid embedding marketplace credentials or private service endpoints.",
+        "concurrency_policy": "Grammar, snippets, LSP resolver, and tests should move together when syntax surfaces change.",
+        "nullability_policy": "Missing package metadata, grammar, or resolver code makes the extension release surface incomplete.",
+        "cleanup_policy": "Packaged VSIX artifacts, temporary release tokens, and local editor caches must stay untracked.",
+        "state_machine": {
+          "source": "VS Code extension release lifecycle.",
+          "states": [
+            "developed",
+            "tested",
+            "packaged",
+            "published"
+          ],
+          "transitions": [
+            {
+              "from": "developed",
+              "to": "tested",
+              "on": "run grammar and extension tests"
+            },
+            {
+              "from": "tested",
+              "to": "packaged",
+              "on": "build marketplace artifact"
+            },
+            {
+              "from": "packaged",
+              "to": "published",
+              "on": "release approved artifact"
+            }
+          ],
+          "invalid_operations": [
+            "commit marketplace token",
+            "publish package without grammar and smoke evidence"
+          ]
+        },
+        "required_tests": [
+          "npm test, grammar checks, extension smoke tests"
+        ],
+        "required_gates": [
+          "styio-audit common gate",
+          "local extension CI"
+        ],
+        "audit_risks": [
+          "marketplace credential leakage",
+          "grammar drift",
+          "LSP resolver supply-chain risk"
+        ]
+      }
+    ],
+    "project_inventory": {
+      "audit_profile": "client-tooling",
+      "technology_stack": [
+        "TypeScript VS Code extension",
+        "TextMate grammar",
+        "Node.js packaging",
+        "LSP client resolver"
+      ],
+      "internal_components": [
+        "extension_activation",
+        "lsp_client",
+        "server_resolver",
+        "syntax_grammar",
+        "snippet_catalog",
+        "marketplace_release"
+      ],
+      "open_source_components": [
+        "VS Code extension API",
+        "Node.js package ecosystem",
+        "TextMate grammar format"
+      ],
+      "dependency_manifests": [
+        "package.json"
+      ]
+    },
+    "license": {
+      "label": "Apache-2.0",
+      "spdx": [
+        "Apache-2.0"
+      ],
+      "text_markers": [
+        "Apache License",
+        "Version 2.0"
+      ],
+      "files": [
+        "LICENSE",
+        "LICENSE.md",
+        "LICENSE.txt",
+        "COPYING",
+        "COPYING.md",
+        "COPYING.txt"
+      ],
+      "metadata_files": [
+        "pyproject.toml",
+        "package.json",
+        "pubspec.yaml"
+      ],
+      "notice_files": [
+        "LICENSE-POLICY.md",
+        "NOTICE",
+        "NOTICE.md",
+        "README.md",
+        "docs/LICENSE-POLICY.md"
+      ],
+      "notice_markers": [
+        "Apache",
+        "License",
+        "Version 2.0"
+      ]
+    },
+    "dependencies": {
+      "manifest_globs": [
+        "package.json",
+        "**/package.json",
+        "pyproject.toml",
+        "**/pyproject.toml",
+        "pubspec.yaml",
+        "**/pubspec.yaml",
+        "CMakeLists.txt",
+        "**/CMakeLists.txt",
+        "requirements*.txt",
+        "**/requirements*.txt",
+        "Cargo.toml",
+        "**/Cargo.toml",
+        "go.mod",
+        "**/go.mod",
+        "Package.swift",
+        "**/Package.swift",
+        "vcpkg.json",
+        "**/vcpkg.json"
+      ],
+      "boundary_files": [
+        "DEPENDENCY-USAGE.md",
+        "THIRD-PARTY-NOTICES.md",
+        "docs/DEPENDENCY-USAGE.md",
+        "docs/dependencies.md",
+        "docs/third-party.md",
+        "docs/specs/DEPENDENCY-USAGE.md",
+        "docs/specs/dependencies.md",
+        "docs/specs/third-party.md"
+      ],
+      "required_marker_groups": [
+        "dependency|依赖",
+        "commercial|商业",
+        "authorization|授权",
+        "usage boundary|使用边界|边界"
+      ],
+      "warning_terms": [
+        "commercial license",
+        "commercial authorization",
+        "paid license",
+        "subscription",
+        "membership",
+        "member-only",
+        "trial license",
+        "evaluation only",
+        "proprietary",
+        "商业授权",
+        "商业许可证",
+        "付费授权",
+        "订阅",
+        "会员制",
+        "试用授权",
+        "专有许可证"
+      ]
+    },
+    "defect_records": {
+      "root": "docs/audit/defects",
+      "required_audit_fields": [
+        "**Severity:**",
+        "**Evidence:**",
+        "**Test evidence:**",
+        "**Data lifecycle:**",
+        "**Gate impact:**",
+        "**Required closure:**"
+      ],
+      "required_closure_fields": [
+        "**Closure evidence:**",
+        "**Coverage evidence:**",
+        "**Data lifecycle evidence:**",
+        "**Gate evidence:**"
+      ],
+      "closed_statuses": [
+        "closed",
+        "resolved",
+        "cleared"
+      ]
+    },
+    "ci_contract": {
+      "platform_adaptation": {
+        "linux": "platform-adaptation / linux-ci-gate",
+        "macos": "platform-adaptation / macos-ci-gate",
+        "windows": "platform-adaptation / windows-ci-gate"
+      },
+      "test_gates": {
+        "smoke": "test / smoke",
+        "golden_standard": "test / golden-standard"
+      },
+      "classified_gates": [
+        "client / release / marketplace"
+      ],
+      "submit_readiness": "A VS Code extension version is submittable when every declared `platform-adaptation / ...-ci-gate`, `test / smoke`, `test / golden-standard`, and `client / release / marketplace` pass for release candidates.",
+      "golden_standard_suite": {
+        "required_files": [],
+        "required_markers": {}
+      },
+      "industry_gate_groups": {
+        "ide / extension-quality": {
+          "covered_by": "test / golden-standard",
+          "industry_references": [
+            "VS Code Testing Extensions: extension host integration tests and VS Code API access",
+            "VS Code Publishing Extensions: VSIX packaging and Marketplace publishing through vsce",
+            "npm ci: clean dependency installation from lockfiles in CI"
+          ],
+          "required_markers": [
+            "extension host test",
+            "lsp wire",
+            "vsix package",
+            "release preflight",
+            "marketplace"
+          ]
+        }
+      }
+    },
+    "branch": {
+      "development_bases": [
+        "main",
+        "nightly"
+      ],
+      "pr_flows": [
+        {
+          "head": "nightly",
+          "base": "stable"
+        }
+      ]
+    }
+  },
+  "privacy_policy": {
+    "privacy_ip_allowlist": [
+      {
+        "service": "github-pages-apex-dns",
+        "ips": [
+          "185.199.108.153",
+          "185.199.109.153",
+          "185.199.110.153",
+          "185.199.111.153",
+          "2606:50c0:8000::153",
+          "2606:50c0:8001::153",
+          "2606:50c0:8002::153",
+          "2606:50c0:8003::153"
+        ],
+        "path_globs": [
+          "docs/dns-and-pages.html",
+          "docs/**/dns-and-pages.html",
+          "modules/default/module.json"
+        ]
+      }
+    ]
+  }
 }

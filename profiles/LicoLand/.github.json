@@ -13,5 +13,9 @@
     "Review organization-wide contribution routing and public metadata against repository ownership boundaries.",
     "Avoid imposing product-specific policy on independent protocol, tooling or website repositories."
   ],
-  "category": "organization-profile"
+  "category": "organization-profile",
+  "repository_policy": {
+    "require_workflow": true,
+    "data_profile": "common"
+  }
 }

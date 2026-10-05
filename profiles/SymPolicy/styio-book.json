@@ -13,5 +13,154 @@
     "Review language examples against the published language behavior and identify speculative features explicitly.",
     "Use synthetic examples; remove machine-specific paths and nonpublic implementation notes."
   ],
-  "category": "documentation"
+  "category": "documentation",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default",
+    "resource_contracts": [
+      {
+        "id": "language_book_content",
+        "owner": "Documentation",
+        "description": "Owns public Styio language book content and example explanations.",
+        "scope_globs": [
+          "README.md",
+          "en/**",
+          "cn/**"
+        ],
+        "copying_policy": "Book content must preserve license notices and avoid copying private design notes or production service material.",
+        "concurrency_policy": "Cross-language content changes should keep English and Chinese navigation coherent when both surfaces are affected.",
+        "nullability_policy": "Missing README or summary files make the book structure unauditable.",
+        "cleanup_policy": "Generated book outputs and local preview artifacts must stay outside tracked source.",
+        "state_machine": {
+          "source": "Book content lifecycle.",
+          "states": [
+            "draft",
+            "reviewed",
+            "published"
+          ],
+          "transitions": [
+            {
+              "from": "draft",
+              "to": "reviewed",
+              "on": "technical and editorial review"
+            },
+            {
+              "from": "reviewed",
+              "to": "published",
+              "on": "merge to protected branch"
+            }
+          ],
+          "invalid_operations": [
+            "publish private service endpoints",
+            "remove navigation coverage for active chapters"
+          ]
+        },
+        "required_tests": [
+          "book link and summary consistency checks"
+        ],
+        "required_gates": [
+          "styio-audit common gate",
+          "documentation build gate"
+        ],
+        "audit_risks": [
+          "stale language specification",
+          "broken navigation",
+          "private operations leakage in examples"
+        ]
+      }
+    ],
+    "project_inventory": {
+      "audit_profile": "documentation-basic",
+      "technology_stack": [
+        "Markdown book content",
+        "GitBook-style summary trees",
+        "Bilingual Styio language documentation"
+      ],
+      "internal_components": [
+        "english_book",
+        "chinese_book",
+        "language_examples",
+        "navigation_summaries"
+      ],
+      "open_source_components": [
+        "Markdown",
+        "GitBook content conventions"
+      ],
+      "dependency_manifests": [
+        "README.md",
+        "en/SUMMARY.md",
+        "cn/SUMMARY.md"
+      ]
+    },
+    "defect_records": {
+      "root": "docs/audit/defects",
+      "required_audit_fields": [
+        "**Severity:**",
+        "**Evidence:**",
+        "**Test evidence:**",
+        "**Data lifecycle:**",
+        "**Gate impact:**",
+        "**Required closure:**"
+      ],
+      "required_closure_fields": [
+        "**Closure evidence:**",
+        "**Coverage evidence:**",
+        "**Data lifecycle evidence:**",
+        "**Gate evidence:**"
+      ],
+      "closed_statuses": [
+        "closed",
+        "resolved",
+        "cleared"
+      ]
+    },
+    "ci_contract": {
+      "test_gates": {
+        "smoke": "test / smoke",
+        "golden_standard": "test / golden-standard"
+      },
+      "submit_readiness": "A styio-book version is submittable when `test / smoke` and `test / golden-standard` both pass.",
+      "golden_standard_suite": {
+        "required_files": [],
+        "required_markers": {}
+      },
+      "industry_gate_groups": {
+        "docs / publication-quality": {
+          "covered_by": "test / golden-standard",
+          "industry_references": [
+            "GitHub rulesets: push rules for path, extension, and file-size control",
+            "OpenSSF Scorecard: binary artifacts and CI tests before merge"
+          ],
+          "required_markers": [
+            "language summary",
+            "markdown reachability",
+            "no root summary",
+            "line endings"
+          ]
+        }
+      }
+    }
+  },
+  "privacy_policy": {
+    "privacy_ip_allowlist": [
+      {
+        "service": "github-pages-apex-dns",
+        "ips": [
+          "185.199.108.153",
+          "185.199.109.153",
+          "185.199.110.153",
+          "185.199.111.153",
+          "2606:50c0:8000::153",
+          "2606:50c0:8001::153",
+          "2606:50c0:8002::153",
+          "2606:50c0:8003::153"
+        ],
+        "path_globs": [
+          "docs/dns-and-pages.html",
+          "docs/**/dns-and-pages.html",
+          "modules/default/module.json"
+        ]
+      }
+    ]
+  }
 }

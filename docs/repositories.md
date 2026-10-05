@@ -1,10 +1,10 @@
 # Repository inventory
 
-Categories are owned by the central profiles. Website, documentation, benchmark and organization-profile categories use the maintainer-owned publishing policy. Other categories retain their existing contribution settings.
+This migration covers 30 continuing public upstreams and two still-public auditors pending private archival. Each continuing upstream requires General-Auditor CI. Prepared changes or PRs are not evidence that a default-branch workflow has migrated. Categories are owned by the central profiles. Website, documentation, benchmark and organization-profile categories use the maintainer-owned publishing policy. Other categories retain their existing contribution settings.
 
 [Access policy](common-policy.md#maintainer-owned-publishing) · [Administration tool](../tools/configure_access.py)
 
-## SymPolicy (18)
+## SymPolicy (17 continuing; 1 pending retirement)
 
 | Repository | Category | Contribution policy |
 | --- | --- | --- |
@@ -22,7 +22,7 @@ Categories are owned by the central profiles. Website, documentation, benchmark 
 | [styio-ext-vsc](https://github.com/SymPolicy/styio-ext-vsc) | software | Existing repository policy |
 | [Styio-Preview](https://github.com/SymPolicy/Styio-Preview) | software | Existing repository policy |
 | [Vityo](https://github.com/SymPolicy/Vityo) | software | Existing repository policy |
-| [styio-audit](https://github.com/SymPolicy/styio-audit) | tooling | Existing repository policy |
+| [styio-audit](https://github.com/SymPolicy/styio-audit) | retiring auditor | Still public; private archival pending coverage and dependency verification |
 | [styio-dev-env](https://github.com/SymPolicy/styio-dev-env) | tooling | Existing repository policy |
 | [styio-examples](https://github.com/SymPolicy/styio-examples) | website | Collaborator PRs; maintainer-only branch changes |
 | [styio.io](https://github.com/SymPolicy/styio.io) | website | Collaborator PRs; maintainer-only branch changes |
@@ -36,7 +36,7 @@ Categories are owned by the central profiles. Website, documentation, benchmark 
 | [Pactium](https://github.com/Meshrix-Platform/Pactium) | software | Existing repository policy |
 | [meshrix.io](https://github.com/Meshrix-Platform/meshrix.io) | website | Collaborator PRs; maintainer-only branch changes |
 
-## LicoLand (10)
+## LicoLand (9 continuing; 1 pending retirement)
 
 | Repository | Category | Contribution policy |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ Categories are owned by the central profiles. Website, documentation, benchmark 
 | [LicoArc-Rust](https://github.com/LicoLand/LicoArc-Rust) | software | Existing repository policy |
 | [LicoUp](https://github.com/LicoLand/LicoUp) | software | Existing repository policy |
 | [LicoUp-Plugins](https://github.com/LicoLand/LicoUp-Plugins) | software | Existing repository policy |
-| [Lico-Auditor](https://github.com/LicoLand/Lico-Auditor) | tooling | Existing repository policy |
+| [Lico-Auditor](https://github.com/LicoLand/Lico-Auditor) | retiring auditor | Still public; private archival pending coverage and dependency verification |
 | [lico.land](https://github.com/LicoLand/lico.land) | website | Collaborator PRs; maintainer-only branch changes |
 | [licoarc.com](https://github.com/LicoLand/licoarc.com) | website | Collaborator PRs; maintainer-only branch changes |
 | [licoup.com](https://github.com/LicoLand/licoup.com) | website | Collaborator PRs; maintainer-only branch changes |

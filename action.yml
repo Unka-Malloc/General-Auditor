@@ -13,6 +13,9 @@ inputs:
   base:
     description: Optional previous commit; checkout must include full ancestry
     default: ''
+  scope:
+    description: Optional auto, snapshot, range, history, staged or worktree scope
+    default: ''
   output:
     description: Redacted JSON result path
     default: general-auditor-result.json
@@ -24,12 +27,19 @@ runs:
         AUDITOR_PATH: ${{ github.action_path }}
         AUDIT_REPOSITORY: ${{ inputs.repository }}
         AUDIT_DIRECTORY: ${{ inputs.directory }}
+        AUDIT_SCOPE: ${{ inputs.scope }}
         AUDIT_HEAD: ${{ inputs.head }}
         AUDIT_BASE: ${{ inputs.base }}
+        AUDIT_TRIGGER: ${{ github.event_name }}
+        AUDIT_EVENT: ${{ github.event_path }}
         AUDIT_OUTPUT: ${{ inputs.output }}
       run: |
-        args=(scan --repository "$AUDIT_REPOSITORY" --directory "$AUDIT_DIRECTORY" --head "$AUDIT_HEAD" --policy-root "$AUDITOR_PATH" --output "$AUDIT_OUTPUT" --html "$AUDIT_OUTPUT.html")
-        if [[ -n "$AUDIT_BASE" && "$AUDIT_BASE" != 0000000000000000000000000000000000000000 ]]; then
+        if [[ "$AUDIT_SCOPE" == auto ]]; then AUDIT_SCOPE=""; fi
+        args=(scan --repository "$AUDIT_REPOSITORY" --directory "$AUDIT_DIRECTORY" --head "$AUDIT_HEAD" --policy-root "$AUDITOR_PATH" --output "$AUDIT_OUTPUT" --html "$AUDIT_OUTPUT.html" --event "$AUDIT_EVENT" --trigger "$AUDIT_TRIGGER")
+        if [[ -n "$AUDIT_SCOPE" ]]; then
+          args+=(--scope "$AUDIT_SCOPE")
+        fi
+        if [[ ( -z "$AUDIT_SCOPE" || "$AUDIT_SCOPE" == range ) && -n "$AUDIT_BASE" && "$AUDIT_BASE" != 0000000000000000000000000000000000000000 ]]; then
           args+=(--base "$AUDIT_BASE")
         fi
         python3 -I "$AUDITOR_PATH/action_entry.py" "${args[@]}"

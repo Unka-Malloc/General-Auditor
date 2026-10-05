@@ -13,5 +13,9 @@
     "Review simulation state transitions and reproducibility of balance-design results.",
     "Use synthetic game and user datasets in published fixtures and examples."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default"
+  }
 }

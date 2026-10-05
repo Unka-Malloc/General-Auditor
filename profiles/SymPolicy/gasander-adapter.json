@@ -13,5 +13,9 @@
     "Review adapter input validation and error propagation across the integration boundary.",
     "Ensure integration fixtures do not contain captured production payloads or credentials."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default"
+  }
 }

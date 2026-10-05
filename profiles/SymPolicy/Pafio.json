@@ -13,5 +13,660 @@
     "Review package resolution, archive extraction and executable install hooks at trust boundaries.",
     "Check registry authentication, package provenance and dependency usage requirements."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default",
+    "resource_contracts": [
+      {
+        "id": "manifest_resolver_graph",
+        "owner": "Manifest / Resolver / Plan",
+        "description": "Owns manifest parsing, dependency graph resolution, lockfile generation, compile-plan selection, and graph serialization.",
+        "scope_globs": [
+          "src/PafioManifest/**",
+          "src/PafioResolve/**",
+          "src/PafioPlan/**",
+          "tests/native/BuildPlanTests.cpp",
+          "tests/native/LockTests.cpp"
+        ],
+        "copying_policy": "Resolved graphs and package lists must avoid repeated deep copies in hot command paths; projections should use references, stable ids, or compact payloads.",
+        "concurrency_policy": "Resolver state is command-scoped unless explicitly documented; shared caches require bounded locks and invalidation policy.",
+        "nullability_policy": "Missing manifests, packages, roots, targets, and lock entries must have explicit failure states.",
+        "cleanup_policy": "Temporary graph artifacts and lockfile writes must be atomic or have documented recovery behavior.",
+        "state_machine": {
+          "source": "Native C++ result types, resolver contracts, lockfile tests, compile-plan tests, and interop gates.",
+          "states": [
+            "unloaded",
+            "parsed",
+            "resolving",
+            "resolved",
+            "locked",
+            "planned",
+            "failed"
+          ],
+          "transitions": [
+            {
+              "from": "unloaded",
+              "to": "parsed",
+              "on": "manifest parser accepts input"
+            },
+            {
+              "from": "parsed",
+              "to": "resolving",
+              "on": "resolver begins dependency walk"
+            },
+            {
+              "from": "resolving",
+              "to": "resolved",
+              "on": "all package identities are resolved"
+            },
+            {
+              "from": "resolved",
+              "to": "locked",
+              "on": "lockfile is generated or verified"
+            },
+            {
+              "from": "locked",
+              "to": "planned",
+              "on": "compile plan selects a target"
+            },
+            {
+              "from": "parsed",
+              "to": "failed",
+              "on": "invalid manifest or dependency is rejected"
+            },
+            {
+              "from": "resolving",
+              "to": "failed",
+              "on": "cycle, ambiguity, or source error is detected"
+            }
+          ],
+          "invalid_operations": [
+            "planning unresolved graphs",
+            "writing lockfiles after failed resolution",
+            "using missing target data",
+            "silently accepting ambiguous workspace roots"
+          ]
+        },
+        "required_tests": [
+          "pafio_native_tests for manifest, resolver, lock, and build plan changes",
+          "interop compile-plan gate for contract boundary changes",
+          "negative tests for malformed manifests and ambiguous roots"
+        ],
+        "required_gates": [
+          "ctest --test-dir build-codex --output-on-failure",
+          "scripts/styio-interface-gate.py",
+          "scripts/delivery-gate.sh"
+        ],
+        "audit_risks": [
+          "stale graph",
+          "unbounded graph copy",
+          "ambiguous target selection",
+          "partial lockfile write"
+        ]
+      },
+      {
+        "id": "registry_materialization_and_trust",
+        "owner": "Registry / Security / Packaging",
+        "description": "Owns registry v2 metadata validation, trust roots, artifact download, archive validation, extraction, and materialized package state.",
+        "scope_globs": [
+          "src/PafioRegistryClient/**",
+          "src/pafio_registry_v2/**",
+          "scripts/registry-v2-*.py",
+          "tests/interop/registry-v2-*",
+          "tests/unit/test_registry_v2.py"
+        ],
+        "copying_policy": "Registry metadata and artifacts must have role-specific size limits before being copied or decoded.",
+        "concurrency_policy": "Registry cache writes must be isolated by target path and avoid shared mutable trust state.",
+        "nullability_policy": "Missing roots, signatures, timestamps, snapshots, manifests, and artifacts must be explicit trust failures.",
+        "cleanup_policy": "Downloads and extraction directories must be cleaned on validation failure, timeout, cancellation, and partial extraction.",
+        "state_machine": {
+          "source": "Native and Python registry contracts, signed metadata schemas, registry v2 interop gates, and security tests.",
+          "states": [
+            "requested",
+            "fetched",
+            "verified",
+            "extracted",
+            "materialized",
+            "cleaned",
+            "failed"
+          ],
+          "transitions": [
+            {
+              "from": "requested",
+              "to": "fetched",
+              "on": "metadata or artifact is read within bounds"
+            },
+            {
+              "from": "fetched",
+              "to": "verified",
+              "on": "hash, signature, threshold, and expiry policy pass"
+            },
+            {
+              "from": "verified",
+              "to": "extracted",
+              "on": "archive members pass containment checks"
+            },
+            {
+              "from": "extracted",
+              "to": "materialized",
+              "on": "checkout root is finalized"
+            },
+            {
+              "from": "materialized",
+              "to": "cleaned",
+              "on": "temporary files are removed"
+            },
+            {
+              "from": "fetched",
+              "to": "failed",
+              "on": "trust or size policy rejects input"
+            },
+            {
+              "from": "failed",
+              "to": "cleaned",
+              "on": "failure cleanup completes"
+            }
+          ],
+          "invalid_operations": [
+            "extracting unverified artifacts",
+            "trusting registry-provided roots without pin policy",
+            "reading unbounded HTTP responses",
+            "materializing archive entries outside the checkout root"
+          ]
+        },
+        "required_tests": [
+          "registry v2 unit tests for metadata and path validation",
+          "interop gates for registry v2 read, publish, and control-plane behavior",
+          "malicious archive and trust-chain negative tests for extraction/trust changes"
+        ],
+        "required_gates": [
+          "tests/interop/registry-v2-contract-gate.py",
+          "tests/interop/registry-v2-http-read.sh",
+          "tests/interop/registry-v2-publish.sh",
+          "scripts/delivery-gate.sh"
+        ],
+        "audit_risks": [
+          "trust-chain bypass",
+          "archive traversal",
+          "secret path disclosure",
+          "unbounded response read",
+          "partial checkout"
+        ]
+      },
+      {
+        "id": "toolchain_state_lifecycle",
+        "owner": "Toolchain / CLI",
+        "description": "Owns managed compiler install, use, pin, status, project state files, and toolchain payload serialization.",
+        "scope_globs": [
+          "src/PafioToolchain/**",
+          "src/PafioTool/**",
+          "tests/native/ToolchainStateTests.cpp",
+          "tests/native/ToolInstallTests.cpp"
+        ],
+        "copying_policy": "Toolchain state payloads must not duplicate large source trees or leak host paths into stable machine contracts.",
+        "concurrency_policy": "State-file updates must be command-scoped and safe under repeated commands; broader concurrency requires locking policy.",
+        "nullability_policy": "Absent state files, missing compilers, invalid pins, and unsupported modes must have explicit status states.",
+        "cleanup_policy": "Failed installs and pin updates must leave a recoverable project state and no ambiguous active compiler.",
+        "state_machine": {
+          "source": "Toolchain state structs, CLI machine payloads, native tests, and project graph contracts.",
+          "states": [
+            "absent",
+            "discovered",
+            "installed",
+            "selected",
+            "pinned",
+            "cleared",
+            "failed"
+          ],
+          "transitions": [
+            {
+              "from": "absent",
+              "to": "discovered",
+              "on": "state path or compiler is found"
+            },
+            {
+              "from": "discovered",
+              "to": "installed",
+              "on": "install records managed compiler"
+            },
+            {
+              "from": "installed",
+              "to": "selected",
+              "on": "use selects an installed compiler"
+            },
+            {
+              "from": "selected",
+              "to": "pinned",
+              "on": "project pin is written"
+            },
+            {
+              "from": "pinned",
+              "to": "cleared",
+              "on": "pin clear succeeds"
+            },
+            {
+              "from": "discovered",
+              "to": "failed",
+              "on": "state file or compiler is invalid"
+            }
+          ],
+          "invalid_operations": [
+            "pinning missing compilers",
+            "reporting success for invalid state files",
+            "leaking private source paths in public status",
+            "leaving partial install as active"
+          ]
+        },
+        "required_tests": [
+          "native toolchain state, install, pin, and status tests",
+          "CLI JSON payload regression for changed machine fields",
+          "project graph contract test when toolchain payload changes"
+        ],
+        "required_gates": [
+          "ctest --test-dir build-codex -R 'Toolchain|ToolStatus|ProjectGraph'",
+          "scripts/delivery-gate.sh"
+        ],
+        "audit_risks": [
+          "stale toolchain pin",
+          "partial install",
+          "host path leak",
+          "invalid machine status"
+        ]
+      },
+      {
+        "id": "process_and_control_plane",
+        "owner": "Core Process / Cloud / Control Plane",
+        "description": "Owns subprocess execution, timeout behavior, stdout/stderr limits, cloud request payloads, and local control-plane server resources.",
+        "scope_globs": [
+          "src/PafioCore/Process.*",
+          "src/PafioCloud/**",
+          "scripts/registry-v2-control-plane-server.py",
+          "tests/interop/registry-control-plane-contract-gate.py"
+        ],
+        "copying_policy": "Process output and request bodies must be bounded before buffering.",
+        "concurrency_policy": "Long-running subprocesses and servers must have timeout, cancellation, and cleanup behavior.",
+        "nullability_policy": "Missing programs, failed exits, signals, timeouts, and malformed requests must be structured result states.",
+        "cleanup_policy": "Process groups, temporary files, sockets, and request resources must be released on exit, timeout, and failure.",
+        "state_machine": {
+          "source": "ProcessResult, ProcessRequest, control-plane contracts, interop gates, and timeout tests.",
+          "states": [
+            "configured",
+            "running",
+            "exited",
+            "timed_out",
+            "failed",
+            "cleaned"
+          ],
+          "transitions": [
+            {
+              "from": "configured",
+              "to": "running",
+              "on": "process or server starts"
+            },
+            {
+              "from": "running",
+              "to": "exited",
+              "on": "process exits normally"
+            },
+            {
+              "from": "running",
+              "to": "timed_out",
+              "on": "timeout policy fires"
+            },
+            {
+              "from": "running",
+              "to": "failed",
+              "on": "spawn, protocol, or validation failure"
+            },
+            {
+              "from": "exited",
+              "to": "cleaned",
+              "on": "handles and temp resources are released"
+            },
+            {
+              "from": "timed_out",
+              "to": "cleaned",
+              "on": "process group and buffers are released"
+            },
+            {
+              "from": "failed",
+              "to": "cleaned",
+              "on": "failure cleanup completes"
+            }
+          ],
+          "invalid_operations": [
+            "running without timeout for network or compiler calls",
+            "buffering unbounded output",
+            "returning HTTP success for validation failure",
+            "leaking request secrets into logs"
+          ]
+        },
+        "required_tests": [
+          "native process timeout and truncation tests",
+          "control-plane contract tests for status, auth, and error status",
+          "slow endpoint or failed process regression for changed callers"
+        ],
+        "required_gates": [
+          "ctest --test-dir build-codex -R 'Process|ControlPlane|Cloud'",
+          "tests/interop/registry-control-plane-contract-gate.py",
+          "scripts/delivery-gate.sh"
+        ],
+        "audit_risks": [
+          "hung subprocess",
+          "unbounded output",
+          "HTTP status weakening",
+          "secret leakage",
+          "orphaned process"
+        ]
+      }
+    ],
+    "project_inventory": {
+      "audit_profile": "backend-operations",
+      "technology_stack": [
+        "C++ package manager, resolver, registry, toolchain, and process code built with CMake and CTest",
+        "Python registry, control-plane, docs, hygiene, and interop gates",
+        "Bash delivery and checkpoint scripts",
+        "JSON, TOML, and lockfile contract artifacts",
+        "TypeScript and web fixture surfaces present in the repository",
+        "GitHub Actions workflow automation"
+      ],
+      "internal_components": [
+        "PafioManifest, PafioResolve, and PafioPlan manifest/resolver/compile-plan graph",
+        "PafioRegistryClient and pafio_registry_v2 registry materialization and trust layer",
+        "PafioToolchain and PafioTool managed compiler/toolchain state",
+        "PafioCore Process and PafioCloud control-plane integration",
+        "Native, interop, unit, docs, and delivery gate suites",
+        "Registry v2 publish, verify, keygen, promote, and control-plane helper scripts"
+      ],
+      "open_source_components": [
+        "CMake and CTest",
+        "nlohmann_json",
+        "tomlplusplus",
+        "googletest",
+        "Python standard library tooling",
+        "Bash shell tooling",
+        "GitHub Actions"
+      ],
+      "dependency_manifests": [
+        "CMakeLists.txt",
+        "src/CMakeLists.txt",
+        "tests/CMakeLists.txt",
+        ".github/workflows/*.yml"
+      ],
+      "security_boundaries": [
+        "Authentication and authorization implementation may be public when it is standard registry or control-plane protocol behavior.",
+        "Privacy and PII payloads must not be committed in registry fixtures, examples, reports, or logs.",
+        "Password storage is not a production styio-pafio responsibility; any password fixture must be fake test data.",
+        "Secret, token, key, and credential material must stay private even when key-generation helper code is public.",
+        "Production private material, signing keys, registry role keys, and generated key bundles are offline or not committed to GitHub.",
+        "Permission matrix and route authorization behavior for registry and control-plane routes must be covered by regression tests.",
+        "Deployment security config must document TLS, CORS, CSRF, cookie, debug exposure, and local-only control-plane boundaries where applicable.",
+        "SBOM, CVE, and dependency vulnerability scan evidence is required before release or external deployment gates pass.",
+        "DAST black-box penetration security regression must cover deployed registry and control-plane HTTP surfaces before public deployment.",
+        "Runtime secret manager or KMS key rotation owns production signing keys, hosted tokens, and registry credentials.",
+        "Rate limit, anti replay nonce, and idempotency boundaries must be documented for registry publish and control-plane routes.",
+        "Log redaction and audit log rules must prevent request tokens, key paths, and credentials from being written to logs.",
+        "SSRF egress allowlist and URL allowlist boundaries must cover registry downloads, mirror reads, and outbound control-plane requests.",
+        "Command execution must use subprocess allowlists and reject shell injection surfaces for toolchain, compiler, and helper invocations."
+      ]
+    },
+    "license": {
+      "label": "Apache-2.0",
+      "spdx": [
+        "Apache-2.0"
+      ],
+      "text_markers": [
+        "Apache License",
+        "Version 2.0"
+      ],
+      "files": [
+        "LICENSE",
+        "LICENSE.md",
+        "LICENSE.txt",
+        "COPYING",
+        "COPYING.md",
+        "COPYING.txt"
+      ],
+      "metadata_files": [
+        "pyproject.toml",
+        "package.json",
+        "pubspec.yaml"
+      ],
+      "notice_files": [
+        "LICENSE-POLICY.md",
+        "NOTICE",
+        "NOTICE.md",
+        "README.md",
+        "docs/LICENSE-POLICY.md"
+      ],
+      "notice_markers": [
+        "Apache",
+        "License",
+        "Version 2.0"
+      ]
+    },
+    "dependencies": {
+      "manifest_globs": [
+        "package.json",
+        "**/package.json",
+        "pyproject.toml",
+        "**/pyproject.toml",
+        "pubspec.yaml",
+        "**/pubspec.yaml",
+        "CMakeLists.txt",
+        "**/CMakeLists.txt",
+        "requirements*.txt",
+        "**/requirements*.txt",
+        "Cargo.toml",
+        "**/Cargo.toml",
+        "go.mod",
+        "**/go.mod",
+        "Package.swift",
+        "**/Package.swift",
+        "vcpkg.json",
+        "**/vcpkg.json"
+      ],
+      "boundary_files": [
+        "DEPENDENCY-USAGE.md",
+        "THIRD-PARTY-NOTICES.md",
+        "docs/DEPENDENCY-USAGE.md",
+        "docs/dependencies.md",
+        "docs/third-party.md",
+        "docs/specs/DEPENDENCY-USAGE.md",
+        "docs/specs/dependencies.md",
+        "docs/specs/third-party.md"
+      ],
+      "required_marker_groups": [
+        "dependency|依赖",
+        "commercial|商业",
+        "authorization|授权",
+        "usage boundary|使用边界|边界"
+      ],
+      "warning_terms": [
+        "commercial license",
+        "commercial authorization",
+        "paid license",
+        "subscription",
+        "membership",
+        "member-only",
+        "trial license",
+        "evaluation only",
+        "proprietary",
+        "商业授权",
+        "商业许可证",
+        "付费授权",
+        "订阅",
+        "会员制",
+        "试用授权",
+        "专有许可证"
+      ]
+    },
+    "defect_records": {
+      "root": "docs/audit/defects",
+      "required_audit_fields": [
+        "**Severity:**",
+        "**Evidence:**",
+        "**Test evidence:**",
+        "**Data lifecycle:**",
+        "**Gate impact:**",
+        "**Required closure:**"
+      ],
+      "required_closure_fields": [
+        "**Closure evidence:**",
+        "**Coverage evidence:**",
+        "**Data lifecycle evidence:**",
+        "**Gate evidence:**"
+      ],
+      "closed_statuses": [
+        "closed",
+        "resolved",
+        "cleared"
+      ]
+    },
+    "ci_contract": {
+      "platform_adaptation": {
+        "linux": "platform-adaptation / linux-ci-gate"
+      },
+      "test_gates": {
+        "smoke": "test / smoke",
+        "golden_standard": "test / golden-standard"
+      },
+      "submit_readiness": "A Pafio backend/toolchain version is submittable when `platform-adaptation / linux-ci-gate`, `test / smoke`, and `test / golden-standard` all pass.",
+      "golden_standard_suite": {
+        "manifest": "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md",
+        "required_files": [
+          "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md"
+        ],
+        "required_markers": {
+          "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md": [
+            "test / smoke",
+            "test / golden-standard",
+            "submit readiness"
+          ]
+        }
+      },
+      "industry_gate_groups": {
+        "package-manager / registry-safety": {
+          "covered_by": "test / golden-standard",
+          "industry_references": [
+            "npm provenance statements: CI-built packages, OIDC provenance, registry signature verification",
+            "Cargo package: manifest checks, lockfile inclusion, archive creation, pristine rebuild verification",
+            "SLSA producing artifacts: consistent build process and distributed provenance"
+          ],
+          "required_markers": [
+            "manifest validation",
+            "dependency integrity",
+            "package archive",
+            "publish dry-run",
+            "provenance",
+            "credential boundary",
+            "registry protocol"
+          ]
+        }
+      },
+      "local_gate_profile": {
+        "profile_id": "pafio-submit-gate-registry-profile",
+        "manifest": "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md",
+        "covered_by": "test / golden-standard",
+        "required_markers": [
+          "repo-owned adaptation",
+          "submit-gate.py",
+          "extractability",
+          "package delivery",
+          "registry protocol"
+        ]
+      }
+    },
+    "server_boundary": {
+      "required_manifest_groups": [
+        "auth|authentication|authorization|identity|鉴权",
+        "privacy|pii|personal data|隐私",
+        "password|密码",
+        "secret|token|key|credential|密钥",
+        "production|offline|private material|not committed|不进仓库|离线",
+        "permission matrix|route authorization|rbac|role based access|权限矩阵",
+        "deployment security|deployment config|tls|cors|csrf|cookie|部署安全",
+        "sbom|cve|dependency vulnerability|vulnerability scan|依赖漏洞",
+        "dast|black-box|penetration|security regression|渗透",
+        "runtime secret|secret manager|kms|key rotation|密钥轮换",
+        "rate limit|anti replay|replay protection|nonce|idempotency|限流|重放",
+        "log redaction|sensitive log|audit log|日志脱敏",
+        "ssrf|egress allowlist|url allowlist|outbound request|出站",
+        "command execution|shell injection|subprocess allowlist|命令执行"
+      ],
+      "restricted_path_globs": [
+        ".env",
+        ".env.*",
+        "**/.env",
+        "**/.env.*",
+        "**/.kube/**",
+        "**/*kubeconfig*",
+        "**/*.tfstate",
+        "**/*.tfstate.*",
+        "**/*.tfvars",
+        "**/ansible/**",
+        "**/deploy/prod/**",
+        "**/deploy/production/**",
+        "**/infra/**",
+        "**/inventory.ini",
+        "**/ops/**",
+        "**/private/**",
+        "**/prod/**",
+        "**/production/**",
+        "**/*.p12",
+        "**/*.pfx",
+        "**/id_rsa",
+        "**/id_ed25519",
+        "**/private/*.key",
+        "**/private/*.pem",
+        "**/production/*.key",
+        "**/production/*.pem",
+        "**/*prod*secret*.json",
+        "**/*production*secret*.json"
+      ]
+    },
+    "branch": {
+      "required_refs": [
+        "release",
+        "stable",
+        "nightly"
+      ],
+      "development_bases": [
+        "nightly"
+      ],
+      "pr_flows": [
+        {
+          "head": "nightly",
+          "base": "stable"
+        },
+        {
+          "head": "stable",
+          "base": "release"
+        }
+      ]
+    }
+  },
+  "privacy_policy": {
+    "privacy_ip_allowlist": [
+      {
+        "service": "github-pages-apex-dns",
+        "ips": [
+          "185.199.108.153",
+          "185.199.109.153",
+          "185.199.110.153",
+          "185.199.111.153",
+          "2606:50c0:8000::153",
+          "2606:50c0:8001::153",
+          "2606:50c0:8002::153",
+          "2606:50c0:8003::153"
+        ],
+        "path_globs": [
+          "docs/dns-and-pages.html",
+          "docs/**/dns-and-pages.html",
+          "modules/default/module.json"
+        ]
+      }
+    ]
+  }
 }

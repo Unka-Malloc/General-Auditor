@@ -13,5 +13,550 @@
     "Review editor process execution, filesystem access and workspace trust boundaries.",
     "Check diagnostics and exported project configuration for private paths and user content."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default",
+    "resource_contracts": [
+      {
+        "id": "workspace_document_state",
+        "owner": "Editor / Workspace State",
+        "description": "Owns document snapshots, selections, revisions, persistence, file switching, and workspace document caches.",
+        "scope_globs": [
+          "frontend/styio_view_app/lib/src/editor/**",
+          "frontend/styio_view_app/lib/src/app/state/workspace_document_store*",
+          "frontend/styio_view_app/test/editor_controller_editing_test.dart",
+          "frontend/styio_view_app/test/workspace_document_store_test.dart"
+        ],
+        "copying_policy": "Document text copies must be tied to immutable revisions or explicit replace operations; repeated full copies require UI and memory justification.",
+        "concurrency_policy": "Async loads and saves must carry generation or revision guards so stale completions cannot overwrite active state.",
+        "nullability_policy": "Missing documents, failed stores, and absent selections must produce explicit seed, failed, or unchanged states.",
+        "cleanup_policy": "Document caches and listeners must be invalidated when workspace, path, or active document changes.",
+        "state_machine": {
+          "source": "DocumentState, editor controller tests, workspace store tests, and shell model tests.",
+          "states": [
+            "seeded",
+            "loaded",
+            "dirty",
+            "saving",
+            "saved",
+            "failed",
+            "disposed"
+          ],
+          "transitions": [
+            {
+              "from": "seeded",
+              "to": "loaded",
+              "on": "store returns existing or seeded document"
+            },
+            {
+              "from": "loaded",
+              "to": "dirty",
+              "on": "edit changes text or selection"
+            },
+            {
+              "from": "dirty",
+              "to": "saving",
+              "on": "save starts"
+            },
+            {
+              "from": "saving",
+              "to": "saved",
+              "on": "store persists revision"
+            },
+            {
+              "from": "saving",
+              "to": "failed",
+              "on": "store rejects or throws"
+            },
+            {
+              "from": "loaded",
+              "to": "disposed",
+              "on": "workspace or controller is released"
+            }
+          ],
+          "invalid_operations": [
+            "stale async load overwrites active document",
+            "saving without revision ownership",
+            "dropping store errors",
+            "using disposed controller state"
+          ]
+        },
+        "required_tests": [
+          "editor controller editing tests for document mutation",
+          "workspace document store tests for persistence behavior",
+          "shell model tests for async load or file switching changes"
+        ],
+        "required_gates": [
+          "cd frontend/styio_view_app && flutter test test/editor_controller_editing_test.dart test/workspace_document_store_test.dart",
+          "scripts/delivery-gate.sh"
+        ],
+        "audit_risks": [
+          "stale state write",
+          "lost save error",
+          "unbounded document copy",
+          "selection/document mismatch"
+        ]
+      },
+      {
+        "id": "adapter_command_results",
+        "owner": "Backend Toolchain / Integration Adapters",
+        "description": "Owns local, hosted, and web adapter commands, execution sessions, toolchain/dependency/deployment result states, and capability routing.",
+        "scope_globs": [
+          "frontend/styio_view_app/lib/src/backend_toolchain/**",
+          "frontend/styio_view_app/lib/src/integration/**",
+          "frontend/styio_view_app/test/execution_adapter_test.dart",
+          "frontend/styio_view_app/test/toolchain_management_adapter_test.dart"
+        ],
+        "copying_policy": "Adapter payloads and hosted responses must have size limits or summarized machine payloads before buffering.",
+        "concurrency_policy": "Commands must expose running, terminal, cancellation, and blocked states without overlapping writes to shared workspace state.",
+        "nullability_policy": "Unavailable routes, missing binaries, network failures, and unsupported capabilities must be normalized to blocked or failed results.",
+        "cleanup_policy": "Temporary overlays, subprocesses, HTTP clients, and streams must be released after success, failure, timeout, and cancellation.",
+        "state_machine": {
+          "source": "Adapter result enums, execution session types, model tests, product workflow tests, and hosted/local adapter tests.",
+          "states": [
+            "unavailable",
+            "ready",
+            "running",
+            "succeeded",
+            "failed",
+            "blocked",
+            "cleaned"
+          ],
+          "transitions": [
+            {
+              "from": "unavailable",
+              "to": "ready",
+              "on": "capability and route are resolved"
+            },
+            {
+              "from": "ready",
+              "to": "running",
+              "on": "command starts"
+            },
+            {
+              "from": "running",
+              "to": "succeeded",
+              "on": "adapter returns success"
+            },
+            {
+              "from": "running",
+              "to": "failed",
+              "on": "adapter returns failure or exception is normalized"
+            },
+            {
+              "from": "ready",
+              "to": "blocked",
+              "on": "route or capability is unavailable"
+            },
+            {
+              "from": "succeeded",
+              "to": "cleaned",
+              "on": "temporary resources are released"
+            },
+            {
+              "from": "failed",
+              "to": "cleaned",
+              "on": "failure cleanup completes"
+            }
+          ],
+          "invalid_operations": [
+            "invoking adapter before route capability is checked",
+            "letting adapter exceptions escape shell model",
+            "reading unbounded hosted responses",
+            "leaving execution overlay mutable against source workspace"
+          ]
+        },
+        "required_tests": [
+          "adapter unit tests for touched command result type",
+          "hosted/local product workflow test when execution route changes",
+          "negative tests for timeout, missing binary, and failed response paths"
+        ],
+        "required_gates": [
+          "cd frontend/styio_view_app && flutter test test/execution_adapter_test.dart test/toolchain_management_adapter_test.dart",
+          "STYIO_VIEW_PRODUCT_GATE=1 cd frontend/styio_view_app && flutter test test/local_product_workflow_test.dart test/hosted_product_workflow_test.dart",
+          "scripts/delivery-gate.sh"
+        ],
+        "audit_risks": [
+          "uncaught adapter exception",
+          "route capability bypass",
+          "overlay source mutation",
+          "unbounded HTTP response",
+          "missing timeout"
+        ]
+      },
+      {
+        "id": "module_lifecycle",
+        "owner": "Module Host / Platform",
+        "description": "Owns module manifests, capability matrices, staged updates, optional uninstall policy, platform visibility, and module enablement state.",
+        "scope_globs": [
+          "frontend/styio_view_app/lib/src/module_host/**",
+          "frontend/styio_view_app/assets/module_manifests/**",
+          "frontend/styio_view_app/test/module_lifecycle_test.dart"
+        ],
+        "copying_policy": "Module manifests and capability matrices should be loaded once into stable immutable summaries unless tests justify reload behavior.",
+        "concurrency_policy": "Module lifecycle changes must define staging and commit boundaries so UI reads do not observe partial updates.",
+        "nullability_policy": "Missing manifests, unsupported platforms, and optional modules must produce declared blocked or unavailable states.",
+        "cleanup_policy": "Optional uninstall and staged update cleanup must define package, cache, and data retention behavior.",
+        "state_machine": {
+          "source": "Module lifecycle types, manifest assets, capability matrices, module lifecycle tests, and platform runbooks.",
+          "states": [
+            "declared",
+            "available",
+            "enabled",
+            "disabled",
+            "staged",
+            "uninstalled",
+            "failed"
+          ],
+          "transitions": [
+            {
+              "from": "declared",
+              "to": "available",
+              "on": "manifest and capability matrix validate"
+            },
+            {
+              "from": "available",
+              "to": "enabled",
+              "on": "platform and dependency gates allow use"
+            },
+            {
+              "from": "enabled",
+              "to": "disabled",
+              "on": "module is turned off"
+            },
+            {
+              "from": "enabled",
+              "to": "staged",
+              "on": "update is prepared"
+            },
+            {
+              "from": "disabled",
+              "to": "uninstalled",
+              "on": "optional uninstall policy removes package"
+            },
+            {
+              "from": "declared",
+              "to": "failed",
+              "on": "manifest or capability validation fails"
+            }
+          ],
+          "invalid_operations": [
+            "enabling missing module assets",
+            "hot update without staged state",
+            "uninstalling core modules",
+            "hiding platform capability gaps"
+          ]
+        },
+        "required_tests": [
+          "module lifecycle tests for manifest and update policy changes",
+          "capability matrix fixture test when platform visibility changes",
+          "integration gate before real package/cache deletion behavior is claimed"
+        ],
+        "required_gates": [
+          "cd frontend/styio_view_app && flutter test test/module_lifecycle_test.dart",
+          "scripts/delivery-gate.sh"
+        ],
+        "audit_risks": [
+          "partial module update",
+          "core module uninstall",
+          "capability drift",
+          "asset manifest mismatch"
+        ]
+      },
+      {
+        "id": "runtime_replay_state",
+        "owner": "Runtime Surface / Debug Console",
+        "description": "Owns runtime event envelopes, replay summaries, graph summaries, debug lanes, filters, and UI-facing runtime status.",
+        "scope_globs": [
+          "frontend/styio_view_app/lib/src/runtime/**",
+          "frontend/styio_view_app/test/runtime_surfaces_test.dart",
+          "frontend/styio_view_app/test/hosted_payload_codec_test.dart"
+        ],
+        "copying_policy": "Runtime event lists must be summarized or windowed before repeated UI transformations on large traces.",
+        "concurrency_policy": "Runtime replay updates must preserve event order and avoid stale summaries after route changes.",
+        "nullability_policy": "Empty event streams, missing terminal nodes, and absent detail labels must have explicit empty or unknown states.",
+        "cleanup_policy": "Replay windows, debug filters, and route summaries must clear or recompute when execution sessions change.",
+        "state_machine": {
+          "source": "Runtime summary types, runtime surface tests, hosted payload codec tests, and shell model runtime state.",
+          "states": [
+            "empty",
+            "recording",
+            "replayed",
+            "summarized",
+            "rendered",
+            "cleared",
+            "failed"
+          ],
+          "transitions": [
+            {
+              "from": "empty",
+              "to": "recording",
+              "on": "runtime event arrives"
+            },
+            {
+              "from": "recording",
+              "to": "replayed",
+              "on": "event window is ordered"
+            },
+            {
+              "from": "replayed",
+              "to": "summarized",
+              "on": "lanes and graph details are computed"
+            },
+            {
+              "from": "summarized",
+              "to": "rendered",
+              "on": "runtime surface consumes summary"
+            },
+            {
+              "from": "rendered",
+              "to": "cleared",
+              "on": "execution route or workspace changes"
+            },
+            {
+              "from": "recording",
+              "to": "failed",
+              "on": "malformed event payload is rejected"
+            }
+          ],
+          "invalid_operations": [
+            "rendering stale runtime route details",
+            "assuming non-empty event streams",
+            "joining unbounded hosted payloads",
+            "dropping malformed event diagnostics"
+          ]
+        },
+        "required_tests": [
+          "runtime surface tests for summary and UI behavior",
+          "hosted payload codec tests for runtime event payload changes",
+          "shell model tests when execution route changes runtime state"
+        ],
+        "required_gates": [
+          "cd frontend/styio_view_app && flutter test test/runtime_surfaces_test.dart test/hosted_payload_codec_test.dart",
+          "scripts/delivery-gate.sh"
+        ],
+        "audit_risks": [
+          "stale runtime summary",
+          "unbounded replay copy",
+          "malformed event acceptance",
+          "hosted/local route confusion"
+        ]
+      }
+    ],
+    "project_inventory": {
+      "technology_stack": [
+        "Flutter and Dart frontend workspace",
+        "Android, iOS, macOS, Linux, Windows, and web platform runners",
+        "CMake native runner integration for desktop platforms",
+        "JavaScript/HTML/CSS prototype and Playwright screenshot tooling",
+        "Python and Bash repository, docs, and device/profile scripts",
+        "GitHub Actions workflow automation"
+      ],
+      "internal_components": [
+        "Workspace document store, editor controller, selection, persistence, and shell state",
+        "Backend toolchain and integration adapters for local, hosted, and web execution routes",
+        "Module host, module manifests, capability matrices, staged updates, and platform visibility",
+        "Runtime replay surfaces, hosted payload codecs, debug console summaries, and graph/lane models",
+        "Prototype UI and development server security harness",
+        "Docs, product, device, and delivery gate scripts"
+      ],
+      "open_source_components": [
+        "Flutter SDK",
+        "Dart SDK",
+        "cupertino_icons",
+        "shared_preferences",
+        "path_provider",
+        "flutter_test",
+        "flutter_lints",
+        "playwright-core",
+        "PkgConfig",
+        "Android Gradle and platform runner toolchains",
+        "Apple platform runner toolchains",
+        "GitHub Actions"
+      ],
+      "dependency_manifests": [
+        "frontend/styio_view_app/pubspec.yaml",
+        "prototype/package.json",
+        "frontend/styio_view_app/linux/CMakeLists.txt",
+        "frontend/styio_view_app/linux/flutter/CMakeLists.txt",
+        "frontend/styio_view_app/windows/CMakeLists.txt",
+        "frontend/styio_view_app/windows/flutter/CMakeLists.txt",
+        "frontend/styio_view_app/android/build.gradle.kts files",
+        ".github/workflows/*.yml"
+      ],
+      "security_boundaries": [
+        "Authentication and authorization implementation may be public for local, hosted, and web adapter protocol behavior.",
+        "Privacy and PII payloads must not be committed in UI fixtures, hosted payload examples, reports, or logs.",
+        "Password storage is not a production styio-view responsibility; any password fixture must be fake test data.",
+        "Secret, token, key, and credential material such as hosted access tokens must come from runtime configuration and stay private.",
+        "Production private material, tokens, certificates, and generated key bundles are offline or not committed to GitHub.",
+        "Permission matrix and route authorization behavior for local, hosted, and web adapter calls must be covered by regression tests.",
+        "Deployment security config must document TLS, CORS, CSRF, cookie, debug exposure, and hosted-control-plane boundaries where applicable.",
+        "SBOM, CVE, and dependency vulnerability scan evidence is required before release or external deployment gates pass.",
+        "DAST black-box penetration security regression must cover hosted adapter and development server HTTP surfaces before public deployment.",
+        "Runtime secret manager or KMS key rotation owns hosted access tokens, certificates, and production credentials.",
+        "Rate limit, anti replay nonce, and idempotency boundaries must be documented for hosted adapter and development server routes.",
+        "Log redaction and audit log rules must prevent hosted tokens, request payloads, and credentials from being written to logs.",
+        "SSRF egress allowlist and URL allowlist boundaries must cover hosted backend calls and any outbound preview or adapter requests.",
+        "Command execution must use subprocess allowlists and reject shell injection surfaces for local toolchain and prototype helpers."
+      ],
+      "audit_profile": "client-application"
+    },
+    "license": {
+      "label": "Apache-2.0",
+      "spdx": [
+        "Apache-2.0"
+      ],
+      "text_markers": [
+        "Apache License",
+        "Version 2.0"
+      ],
+      "files": [
+        "LICENSE",
+        "LICENSE.md",
+        "LICENSE.txt",
+        "COPYING",
+        "COPYING.md",
+        "COPYING.txt"
+      ],
+      "metadata_files": [
+        "pyproject.toml",
+        "package.json",
+        "pubspec.yaml"
+      ],
+      "notice_files": [
+        "LICENSE-POLICY.md",
+        "NOTICE",
+        "NOTICE.md",
+        "README.md",
+        "docs/LICENSE-POLICY.md"
+      ],
+      "notice_markers": [
+        "Apache",
+        "License",
+        "Version 2.0"
+      ]
+    },
+    "dependencies": {
+      "manifest_globs": [
+        "package.json",
+        "**/package.json",
+        "pyproject.toml",
+        "**/pyproject.toml",
+        "pubspec.yaml",
+        "**/pubspec.yaml",
+        "CMakeLists.txt",
+        "**/CMakeLists.txt",
+        "requirements*.txt",
+        "**/requirements*.txt",
+        "Cargo.toml",
+        "**/Cargo.toml",
+        "go.mod",
+        "**/go.mod",
+        "Package.swift",
+        "**/Package.swift",
+        "vcpkg.json",
+        "**/vcpkg.json"
+      ],
+      "boundary_files": [
+        "DEPENDENCY-USAGE.md",
+        "THIRD-PARTY-NOTICES.md",
+        "docs/DEPENDENCY-USAGE.md",
+        "docs/dependencies.md",
+        "docs/third-party.md",
+        "docs/specs/DEPENDENCY-USAGE.md",
+        "docs/specs/dependencies.md",
+        "docs/specs/third-party.md"
+      ],
+      "required_marker_groups": [
+        "dependency|依赖",
+        "commercial|商业",
+        "authorization|授权",
+        "usage boundary|使用边界|边界"
+      ],
+      "warning_terms": [
+        "commercial license",
+        "commercial authorization",
+        "paid license",
+        "subscription",
+        "membership",
+        "member-only",
+        "trial license",
+        "evaluation only",
+        "proprietary",
+        "商业授权",
+        "商业许可证",
+        "付费授权",
+        "订阅",
+        "会员制",
+        "试用授权",
+        "专有许可证"
+      ]
+    },
+    "defect_records": {
+      "root": "docs/audit/defects",
+      "required_audit_fields": [
+        "**Severity:**",
+        "**Evidence:**",
+        "**Test evidence:**",
+        "**Data lifecycle:**",
+        "**Gate impact:**",
+        "**Required closure:**"
+      ],
+      "required_closure_fields": [
+        "**Closure evidence:**",
+        "**Coverage evidence:**",
+        "**Data lifecycle evidence:**",
+        "**Gate evidence:**"
+      ],
+      "closed_statuses": [
+        "closed",
+        "resolved",
+        "cleared"
+      ]
+    },
+    "branch": {
+      "required_refs": [
+        "release",
+        "stable",
+        "nightly"
+      ],
+      "development_bases": [
+        "nightly"
+      ],
+      "pr_flows": [
+        {
+          "head": "nightly",
+          "base": "stable"
+        },
+        {
+          "head": "stable",
+          "base": "release"
+        }
+      ]
+    }
+  },
+  "privacy_policy": {
+    "privacy_ip_allowlist": [
+      {
+        "service": "github-pages-apex-dns",
+        "ips": [
+          "185.199.108.153",
+          "185.199.109.153",
+          "185.199.110.153",
+          "185.199.111.153",
+          "2606:50c0:8000::153",
+          "2606:50c0:8001::153",
+          "2606:50c0:8002::153",
+          "2606:50c0:8003::153"
+        ],
+        "path_globs": [
+          "docs/dns-and-pages.html",
+          "docs/**/dns-and-pages.html",
+          "modules/default/module.json"
+        ]
+      }
+    ]
+  }
 }

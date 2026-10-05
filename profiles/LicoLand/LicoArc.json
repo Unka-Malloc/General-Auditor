@@ -13,5 +13,10 @@
     "Review normative protocol requirements independently of any one implementation or operator.",
     "Review encrypted messaging, identity and federation examples for synthetic keys and consistent threat boundaries."
   ],
-  "category": "protocol"
+  "category": "protocol",
+  "repository_policy": {
+    "require_workflow": true,
+    "data_profile": "licoarc",
+    "documentation_profile": "lico-project"
+  }
 }

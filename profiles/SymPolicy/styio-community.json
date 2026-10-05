@@ -13,5 +13,319 @@
     "Review community submissions and rendered content as untrusted input.",
     "Separate public contribution metadata from private moderation or user records."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default",
+    "resource_contracts": [
+      {
+        "id": "community_service_surface",
+        "owner": "Community Service",
+        "description": "Owns forum state, adapters, storage contracts, and public web interaction surfaces.",
+        "scope_globs": [
+          "community/**",
+          "web/**",
+          "tests/**",
+          "scripts/**",
+          "tools/stitch/**",
+          "docs/**"
+        ],
+        "copying_policy": "Community examples and generated design assets must not copy private user data, moderation records, or service credentials.",
+        "concurrency_policy": "Forum and storage state transitions must remain testable through repository-local tests before release.",
+        "nullability_policy": "Missing storage or adapter boundaries must fail closed rather than silently dropping community content.",
+        "cleanup_policy": "Generated design outputs and local web preview artifacts must stay untracked unless intentionally documented.",
+        "state_machine": {
+          "source": "Community content and service lifecycle.",
+          "states": [
+            "draft",
+            "moderated",
+            "published",
+            "archived"
+          ],
+          "transitions": [
+            {
+              "from": "draft",
+              "to": "moderated",
+              "on": "community validation"
+            },
+            {
+              "from": "moderated",
+              "to": "published",
+              "on": "publish approved content"
+            },
+            {
+              "from": "published",
+              "to": "archived",
+              "on": "retire stale content"
+            }
+          ],
+          "invalid_operations": [
+            "publish private user data",
+            "bypass moderation state"
+          ]
+        },
+        "required_tests": [
+          "community adapter, forum, state-machine, and storage tests"
+        ],
+        "required_gates": [
+          "styio-audit common gate",
+          "local community CI"
+        ],
+        "audit_risks": [
+          "user-data leakage",
+          "state-machine drift",
+          "unchecked generated design assets"
+        ]
+      }
+    ],
+    "project_inventory": {
+      "audit_profile": "backend-operations",
+      "technology_stack": [
+        "Python community service modules",
+        "Static web frontend",
+        "Node.js design tooling"
+      ],
+      "internal_components": [
+        "community_forum",
+        "community_storage",
+        "community_adapters",
+        "web_frontend",
+        "stitch_design_tools"
+      ],
+      "open_source_components": [
+        "Python standard library",
+        "Node.js toolchain",
+        "browser JavaScript and CSS"
+      ],
+      "dependency_manifests": [
+        "tools/stitch/package.json"
+      ],
+      "security_boundaries": [
+        "Authentication and authorization implementation for community service routes may be public when it follows documented standard protocol behavior.",
+        "Privacy and PII payloads must not be committed in forum fixtures, examples, reports, moderation exports, or logs.",
+        "Password storage is not a production styio-community repository responsibility; any password fixture must be fake test data.",
+        "Secret, token, key, and credential material for adapters, moderation tools, and web publishing must stay private.",
+        "Production private material, service configuration, moderation data exports, and generated key bundles are offline or not committed to GitHub.",
+        "Permission matrix and route authorization behavior for forum, moderation, adapter, and storage routes must be covered by regression tests.",
+        "Deployment security config must document TLS, CORS, CSRF, cookie, debug exposure, and public web service boundaries where applicable.",
+        "SBOM, CVE, and dependency vulnerability scan evidence is required before release or external deployment gates pass.",
+        "DAST black-box penetration security regression must cover deployed community service and public web interaction surfaces before public deployment.",
+        "Runtime secret manager or KMS key rotation owns production adapter tokens, moderation credentials, and service secrets.",
+        "Rate limit, anti replay nonce, and idempotency boundaries must be documented for forum write, moderation, adapter, and storage routes.",
+        "Log redaction and audit log rules must prevent user content secrets, request tokens, moderation notes, and credentials from being written to logs.",
+        "SSRF egress allowlist and URL allowlist boundaries must cover outbound adapter calls, preview fetches, and web publishing helpers.",
+        "Command execution must use subprocess allowlists and reject shell injection surfaces for design tooling, publishing, and maintenance helpers."
+      ]
+    },
+    "license": {
+      "label": "Apache-2.0",
+      "spdx": [
+        "Apache-2.0"
+      ],
+      "text_markers": [
+        "Apache License",
+        "Version 2.0"
+      ],
+      "files": [
+        "LICENSE",
+        "LICENSE.md",
+        "LICENSE.txt",
+        "COPYING",
+        "COPYING.md",
+        "COPYING.txt"
+      ],
+      "metadata_files": [
+        "pyproject.toml",
+        "package.json",
+        "pubspec.yaml"
+      ],
+      "notice_files": [
+        "LICENSE-POLICY.md",
+        "NOTICE",
+        "NOTICE.md",
+        "README.md",
+        "docs/LICENSE-POLICY.md"
+      ],
+      "notice_markers": [
+        "Apache",
+        "License",
+        "Version 2.0"
+      ]
+    },
+    "dependencies": {
+      "manifest_globs": [
+        "package.json",
+        "**/package.json",
+        "pyproject.toml",
+        "**/pyproject.toml",
+        "pubspec.yaml",
+        "**/pubspec.yaml",
+        "CMakeLists.txt",
+        "**/CMakeLists.txt",
+        "requirements*.txt",
+        "**/requirements*.txt",
+        "Cargo.toml",
+        "**/Cargo.toml",
+        "go.mod",
+        "**/go.mod",
+        "Package.swift",
+        "**/Package.swift",
+        "vcpkg.json",
+        "**/vcpkg.json"
+      ],
+      "boundary_files": [
+        "DEPENDENCY-USAGE.md",
+        "THIRD-PARTY-NOTICES.md",
+        "docs/DEPENDENCY-USAGE.md",
+        "docs/dependencies.md",
+        "docs/third-party.md",
+        "docs/specs/DEPENDENCY-USAGE.md",
+        "docs/specs/dependencies.md",
+        "docs/specs/third-party.md"
+      ],
+      "required_marker_groups": [
+        "dependency|依赖",
+        "commercial|商业",
+        "authorization|授权",
+        "usage boundary|使用边界|边界"
+      ],
+      "warning_terms": [
+        "commercial license",
+        "commercial authorization",
+        "paid license",
+        "subscription",
+        "membership",
+        "member-only",
+        "trial license",
+        "evaluation only",
+        "proprietary",
+        "商业授权",
+        "商业许可证",
+        "付费授权",
+        "订阅",
+        "会员制",
+        "试用授权",
+        "专有许可证"
+      ]
+    },
+    "defect_records": {
+      "root": "docs/audit/defects",
+      "required_audit_fields": [
+        "**Severity:**",
+        "**Evidence:**",
+        "**Test evidence:**",
+        "**Data lifecycle:**",
+        "**Gate impact:**",
+        "**Required closure:**"
+      ],
+      "required_closure_fields": [
+        "**Closure evidence:**",
+        "**Coverage evidence:**",
+        "**Data lifecycle evidence:**",
+        "**Gate evidence:**"
+      ],
+      "closed_statuses": [
+        "closed",
+        "resolved",
+        "cleared"
+      ]
+    },
+    "ci_contract": {
+      "test_gates": {
+        "smoke": "test / smoke",
+        "golden_standard": "test / golden-standard"
+      },
+      "submit_readiness": "A styio-community version is submittable when `test / smoke` and `test / golden-standard` both pass.",
+      "golden_standard_suite": {
+        "required_files": [],
+        "required_markers": {}
+      },
+      "industry_gate_groups": {
+        "backend / workflow-integrity": {
+          "covered_by": "test / golden-standard",
+          "industry_references": [
+            "OpenSSF Scorecard: CI tests, code review, dangerous workflow, dependency update, packaging",
+            "GitHub CodeQL code scanning: semantic code analysis for vulnerability patterns"
+          ],
+          "required_markers": [
+            "serialization",
+            "adapter contract",
+            "storage state machine",
+            "bytecode compile",
+            "public workflow"
+          ]
+        }
+      }
+    },
+    "server_boundary": {
+      "required_manifest_groups": [
+        "auth|authentication|authorization|identity|鉴权",
+        "privacy|pii|personal data|隐私",
+        "password|密码",
+        "secret|token|key|credential|密钥",
+        "production|offline|private material|not committed|不进仓库|离线",
+        "permission matrix|route authorization|rbac|role based access|权限矩阵",
+        "deployment security|deployment config|tls|cors|csrf|cookie|部署安全",
+        "sbom|cve|dependency vulnerability|vulnerability scan|依赖漏洞",
+        "dast|black-box|penetration|security regression|渗透",
+        "runtime secret|secret manager|kms|key rotation|密钥轮换",
+        "rate limit|anti replay|replay protection|nonce|idempotency|限流|重放",
+        "log redaction|sensitive log|audit log|日志脱敏",
+        "ssrf|egress allowlist|url allowlist|outbound request|出站",
+        "command execution|shell injection|subprocess allowlist|命令执行"
+      ],
+      "restricted_path_globs": [
+        ".env",
+        ".env.*",
+        "**/.env",
+        "**/.env.*",
+        "**/.kube/**",
+        "**/*kubeconfig*",
+        "**/*.tfstate",
+        "**/*.tfstate.*",
+        "**/*.tfvars",
+        "**/ansible/**",
+        "**/deploy/prod/**",
+        "**/deploy/production/**",
+        "**/infra/**",
+        "**/inventory.ini",
+        "**/ops/**",
+        "**/private/**",
+        "**/prod/**",
+        "**/production/**",
+        "**/*.p12",
+        "**/*.pfx",
+        "**/id_rsa",
+        "**/id_ed25519",
+        "**/private/*.key",
+        "**/private/*.pem",
+        "**/production/*.key",
+        "**/production/*.pem",
+        "**/*prod*secret*.json",
+        "**/*production*secret*.json"
+      ]
+    }
+  },
+  "privacy_policy": {
+    "privacy_ip_allowlist": [
+      {
+        "service": "github-pages-apex-dns",
+        "ips": [
+          "185.199.108.153",
+          "185.199.109.153",
+          "185.199.110.153",
+          "185.199.111.153",
+          "2606:50c0:8000::153",
+          "2606:50c0:8001::153",
+          "2606:50c0:8002::153",
+          "2606:50c0:8003::153"
+        ],
+        "path_globs": [
+          "docs/dns-and-pages.html",
+          "docs/**/dns-and-pages.html",
+          "modules/default/module.json"
+        ]
+      }
+    ]
+  }
 }

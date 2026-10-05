@@ -13,5 +13,9 @@
     "Review public API changes and dependency usage against the repository documentation.",
     "Trace user-controlled input to execution, persistence and diagnostic output."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default"
+  }
 }

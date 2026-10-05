@@ -13,5 +13,9 @@
     "Review plugin capability boundaries, external process invocation and secret custody.",
     "Check installation metadata and adapter examples against published plugin contracts."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true,
+    "data_profile": "common"
+  }
 }

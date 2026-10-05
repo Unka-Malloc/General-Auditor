@@ -13,5 +13,9 @@
     "Review public client features and privacy claims against the supported published behavior.",
     "Keep customer data, internal service topology and release-operation records out of site assets."
   ],
-  "category": "website"
+  "category": "website",
+  "repository_policy": {
+    "require_workflow": true,
+    "data_profile": "website"
+  }
 }

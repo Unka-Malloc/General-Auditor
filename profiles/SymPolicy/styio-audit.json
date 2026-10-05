@@ -13,5 +13,9 @@
     "Keep keyword findings advisory and distinguish collected signals from contextual judgments.",
     "Review rule/module isolation, report redaction and workflow routing; do not fan out an individual repository event."
   ],
-  "category": "tooling"
+  "category": "tooling",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default"
+  }
 }

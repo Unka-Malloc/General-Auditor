@@ -1,0 +1,73 @@
+name: Publish audit report
+on:
+  push:
+    branches: [only]
+    paths:
+      - general_auditor/report.py
+      - general_auditor/pipeline.py
+      - .github/workflows/publish-report.yml
+  workflow_run:
+    workflows: ['Audit repository']
+    branches: [only]
+    types: [completed]
+  schedule:
+    - cron: '19 2 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+# This short writer queue prevents lost updates. Repository scanners never join it.
+concurrency:
+  group: audit-report-publication
+  queue: max
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/only' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: only
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Merge durable repository results and prune the rolling window
+        id: assemble
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out
+          python3 -m general_auditor assemble --event "$GITHUB_EVENT_PATH" > out/publication.json
+          python3 -c 'import json; print("changed=" + str(json.load(open("out/publication.json"))["changed"]).lower())' >> "$GITHUB_OUTPUT"
+      - name: Save the complete checkpoint before attempting Pages deployment
+        if: steps.assemble.outputs.changed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: audit-checkpoint
+          path: |
+            reports/data.json
+            reports/state.json
+            reports/inventory.json
+            reports/index.html
+          retention-days: 30
+          if-no-files-found: error
+      - name: Prepare the single HTML document
+        if: steps.assemble.outputs.changed == 'true'
+        run: |
+          mkdir -p out/pages
+          cp reports/index.html out/pages/index.html
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
+        if: steps.assemble.outputs.changed == 'true'
+        with:
+          path: out/pages
+          retention-days: 1
+      - name: Publish the report
+        if: steps.assemble.outputs.changed == 'true'
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346

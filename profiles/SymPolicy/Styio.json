@@ -13,5 +13,658 @@
     "Review lexer, parser and execution changes for semantic consistency and bounded resource use.",
     "Review compiler input handling and diagnostics without exposing private source or local paths."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default",
+    "resource_contracts": [
+      {
+        "id": "compiler_ast_ir_ownership",
+        "owner": "Compiler / Sema / IR / Codegen",
+        "description": "Owns AST nodes, analyzer bindings, IR nodes, lowering products, and LLVM emission inputs.",
+        "scope_globs": [
+          "src/StyioAST/**",
+          "src/StyioAnalyzer/**|src/StyioSema/**",
+          "src/StyioIR/**",
+          "src/StyioCodeGen/**",
+          "tests/styio_test.cpp"
+        ],
+        "copying_policy": "AST and IR cloning must be explicit, bounded, and covered by regression tests for every accepted syntax family.",
+        "concurrency_policy": "Compiler data structures are single-session by default; cross-session sharing must be immutable or protected by a documented owner boundary.",
+        "nullability_policy": "Nullable AST/IR pointers are allowed only at parse boundaries and must be checked before dereference or converted into typed diagnostics.",
+        "cleanup_policy": "Ownership must terminate through RAII containers, unique ownership, or session teardown that is covered by sanitizer or regression tests.",
+        "state_machine": {
+          "source": "C++ ownership types, node variants, lowering contracts, diagnostics, CTest, and ASan/UBSan runs.",
+          "states": [
+            "allocated",
+            "owned",
+            "analyzed",
+            "lowered",
+            "emitted",
+            "released",
+            "failed"
+          ],
+          "transitions": [
+            {
+              "from": "allocated",
+              "to": "owned",
+              "on": "factory or parser transfers ownership"
+            },
+            {
+              "from": "owned",
+              "to": "analyzed",
+              "on": "type inference accepts the node"
+            },
+            {
+              "from": "analyzed",
+              "to": "lowered",
+              "on": "IR lowering emits a supported form"
+            },
+            {
+              "from": "lowered",
+              "to": "emitted",
+              "on": "codegen verifies and emits LLVM"
+            },
+            {
+              "from": "emitted",
+              "to": "released",
+              "on": "session teardown releases owned structures"
+            },
+            {
+              "from": "owned",
+              "to": "failed",
+              "on": "unsupported or invalid node produces diagnostics"
+            },
+            {
+              "from": "failed",
+              "to": "released",
+              "on": "failure cleanup completes"
+            }
+          ],
+          "invalid_operations": [
+            "lowering unanalyzed nodes",
+            "emitting failed nodes",
+            "returning placeholder values for unsupported nodes",
+            "dereferencing nullable child pointers without a valid state"
+          ]
+        },
+        "required_tests": [
+          "ctest --test-dir build-codex --output-on-failure",
+          "targeted CTest tests for touched syntax, sema, lowering, and codegen paths",
+          "ASan/UBSan leg when ownership or pointer behavior changes"
+        ],
+        "required_gates": [
+          "scripts/checkpoint-health.sh",
+          "scripts/checkpoint-health.sh --with-asan for ownership-sensitive changes"
+        ],
+        "audit_risks": [
+          "silent wrong-code fallback",
+          "use-after-free",
+          "null dereference",
+          "unbounded clone growth",
+          "LLVM verifier failure not propagated"
+        ]
+      },
+      {
+        "id": "runtime_external_resources",
+        "owner": "Runtime / Extern / Security",
+        "description": "Owns runtime handles, external resources, file and stream operations, runtime buffers, and security-sensitive IO.",
+        "scope_globs": [
+          "src/StyioRuntime/**",
+          "src/StyioExtern/**",
+          "tests/security/**",
+          "tests/pipeline_cases/**"
+        ],
+        "copying_policy": "Runtime buffers and external payloads must have documented size caps or streaming behavior before copies are accepted.",
+        "concurrency_policy": "Shared runtime state must declare lock ownership and avoid blocking IO while holding locks.",
+        "nullability_policy": "Invalid handles, absent files, and missing streams must be represented as explicit failure states.",
+        "cleanup_policy": "Files, streams, handles, and buffers must be released on success, failure, timeout, and partial initialization.",
+        "state_machine": {
+          "source": "Runtime handle wrappers, security tests, pipeline tests, soak tests, and sanitizer gates.",
+          "states": [
+            "unopened",
+            "open",
+            "active",
+            "flushed",
+            "closed",
+            "failed"
+          ],
+          "transitions": [
+            {
+              "from": "unopened",
+              "to": "open",
+              "on": "resource acquisition succeeds"
+            },
+            {
+              "from": "open",
+              "to": "active",
+              "on": "runtime operation starts"
+            },
+            {
+              "from": "active",
+              "to": "flushed",
+              "on": "writes are synchronized"
+            },
+            {
+              "from": "flushed",
+              "to": "closed",
+              "on": "cleanup completes"
+            },
+            {
+              "from": "open",
+              "to": "failed",
+              "on": "operation rejects invalid state"
+            },
+            {
+              "from": "failed",
+              "to": "closed",
+              "on": "failure cleanup completes"
+            }
+          ],
+          "invalid_operations": [
+            "read after close",
+            "write after failure",
+            "double close without idempotent state",
+            "resource escape outside containment"
+          ]
+        },
+        "required_tests": [
+          "security-labeled CTest coverage for changed IO paths",
+          "pipeline case covering success and failure behavior",
+          "soak or sanitizer coverage for lifetime-sensitive paths"
+        ],
+        "required_gates": [
+          "scripts/checkpoint-health.sh",
+          "scripts/checkpoint-health.sh --with-asan",
+          "benchmark/soak-minimize.sh when long-running resource behavior changes"
+        ],
+        "audit_risks": [
+          "file handle leak",
+          "buffer growth without caps",
+          "unreleased runtime handle",
+          "unsafe external IO"
+        ]
+      },
+      {
+        "id": "ide_lsp_workspace_state",
+        "owner": "IDE / LSP",
+        "description": "Owns workspace indexing, semantic caches, document snapshots, LSP request state, and editor-facing diagnostics.",
+        "scope_globs": [
+          "src/StyioIDE/**|src/StyioServices/StyioIDE/**",
+          "src/StyioLSP/**|src/StyioServices/StyioLSP/**",
+          "tests/ide/**"
+        ],
+        "copying_policy": "Document snapshots and semantic summaries must avoid broad rescans or repeated full copies without coalescing evidence.",
+        "concurrency_policy": "Background indexing must use bounded queues, coalescing, and workspace-scoped cancellation.",
+        "nullability_policy": "Missing documents, stale snapshots, and absent semantic data must produce structured empty or failed states.",
+        "cleanup_policy": "Caches and background jobs must be invalidated when documents, roots, or capabilities change.",
+        "state_machine": {
+          "source": "IDE service types, LSP handlers, corpus tests, fuzz gates, and performance gates.",
+          "states": [
+            "unloaded",
+            "loaded",
+            "indexed",
+            "serving",
+            "invalidated",
+            "released",
+            "failed"
+          ],
+          "transitions": [
+            {
+              "from": "unloaded",
+              "to": "loaded",
+              "on": "document or workspace root is opened"
+            },
+            {
+              "from": "loaded",
+              "to": "indexed",
+              "on": "syntax and semantic summaries complete"
+            },
+            {
+              "from": "indexed",
+              "to": "serving",
+              "on": "LSP result is produced"
+            },
+            {
+              "from": "serving",
+              "to": "invalidated",
+              "on": "document or file-watch event changes state"
+            },
+            {
+              "from": "invalidated",
+              "to": "indexed",
+              "on": "coalesced reindex completes"
+            },
+            {
+              "from": "loaded",
+              "to": "failed",
+              "on": "parse or filesystem failure is classified"
+            },
+            {
+              "from": "failed",
+              "to": "released",
+              "on": "workspace cleanup completes"
+            }
+          ],
+          "invalid_operations": [
+            "serving stale semantic positions",
+            "indexing paths outside workspace",
+            "unbounded background enqueue",
+            "throwing on malformed LSP input"
+          ]
+        },
+        "required_tests": [
+          "IDE unit or corpus regression for touched behavior",
+          "LSP transcript or server test for protocol changes",
+          "fuzz smoke for parser/LSP sync boundary changes"
+        ],
+        "required_gates": [
+          "scripts/ide-quality-gate.sh",
+          "scripts/ide-fuzz-gate.sh when parse or sync behavior changes",
+          "scripts/ide-perf-gate.sh when indexing or cache behavior changes"
+        ],
+        "audit_risks": [
+          "stale cache",
+          "UTF-16/byte position mismatch",
+          "index flood",
+          "lock contention",
+          "workspace escape"
+        ]
+      },
+      {
+        "id": "parser_shadow_pipeline",
+        "owner": "Parser / Grammar / Shadow Gates",
+        "description": "Owns parser route transitions, tree-sitter grammar state, shadow comparisons, and cutover evidence.",
+        "scope_globs": [
+          "src/StyioParser/**",
+          "grammar/tree-sitter-styio/**",
+          "benchmark/**",
+          "tests/fuzz/**"
+        ],
+        "copying_policy": "Parser tokens, syntax nodes, and shadow artifacts must avoid unbounded duplication and keep minimized repros for mismatches.",
+        "concurrency_policy": "Parser gates are batch-oriented; shared artifacts must be written to isolated output directories.",
+        "nullability_policy": "Unsupported syntax must be rejected with diagnostics or excluded by an explicit capability state.",
+        "cleanup_policy": "Shadow artifacts, fuzz outputs, and generated reports must stay out of tracked source unless summarized into docs.",
+        "state_machine": {
+          "source": "Parser route stats, shadow gates, grammar tests, fuzz corpus, and benchmark reports.",
+          "states": [
+            "legacy",
+            "shadowing",
+            "matched",
+            "accepted",
+            "primary",
+            "failed"
+          ],
+          "transitions": [
+            {
+              "from": "legacy",
+              "to": "shadowing",
+              "on": "new parser route is enabled behind comparison"
+            },
+            {
+              "from": "shadowing",
+              "to": "matched",
+              "on": "shadow output matches expected behavior"
+            },
+            {
+              "from": "matched",
+              "to": "accepted",
+              "on": "tests and docs freeze capability"
+            },
+            {
+              "from": "accepted",
+              "to": "primary",
+              "on": "default route switches"
+            },
+            {
+              "from": "shadowing",
+              "to": "failed",
+              "on": "mismatch or unsupported syntax is found"
+            }
+          ],
+          "invalid_operations": [
+            "cutover without shadow evidence",
+            "silent fallback to legacy",
+            "tracking generated artifacts",
+            "accepting syntax without lowering or rejection"
+          ]
+        },
+        "required_tests": [
+          "parser shadow suite for route changes",
+          "fuzz corpus update for recovery or grammar changes",
+          "milestone or pipeline case for accepted syntax"
+        ],
+        "required_gates": [
+          "scripts/parser-shadow-suite-gate.sh",
+          "scripts/checkpoint-health.sh --with-fuzz for fuzz-sensitive parser changes"
+        ],
+        "audit_risks": [
+          "silent parser fallback",
+          "unsupported accepted syntax",
+          "artifact drift",
+          "unbounded token or node cloning"
+        ]
+      }
+    ],
+    "project_inventory": {
+      "audit_profile": "language-core",
+      "technology_stack": [
+        "C++ compiler/runtime code built with CMake and CTest",
+        "Styio language corpus and .styio fixtures",
+        "Tree-sitter grammar and parser shadow tooling",
+        "Python and Bash repository gates, docs automation, fuzz and benchmark scripts",
+        "GitHub Actions workflow automation",
+        "Rust, JavaScript, TypeScript, Zig, Nix, and Bazel fixture/tooling surfaces present in the repository"
+      ],
+      "internal_components": [
+        "StyioAST, StyioAnalyzer, StyioIR, and StyioCodeGen compiler pipeline",
+        "StyioRuntime and StyioExtern runtime and external resource layer",
+        "StyioIDE and StyioLSP editor-facing workspace services",
+        "StyioParser parser route and shadow comparison pipeline",
+        "Security, pipeline, fuzz, benchmark, and checkpoint gate suites",
+        "Docs, workflow, and repo hygiene automation"
+      ],
+      "open_source_components": [
+        "CMake and CTest",
+        "LLVM toolchain integration where present",
+        "Tree-sitter grammar tooling",
+        "GitHub Actions",
+        "Python standard library tooling",
+        "Bash shell tooling",
+        "Fixture-only Rust, JavaScript, TypeScript, Zig, Nix, and Bazel ecosystems requiring per-manifest evidence when promoted"
+      ],
+      "dependency_manifests": [
+        "CMakeLists.txt",
+        "src/CMakeLists.txt",
+        "tests/CMakeLists.txt",
+        "benchmark/CMakeLists.txt",
+        "tests/fuzz/CMakeLists.txt",
+        "Cargo.toml files",
+        "package.json files",
+        ".github/workflows/*.yml",
+        ".devcontainer/devcontainer.json",
+        ".docker/docker-compose.yaml"
+      ]
+    },
+    "license": {
+      "label": "Apache-2.0",
+      "spdx": [
+        "Apache-2.0"
+      ],
+      "text_markers": [
+        "Apache License",
+        "Version 2.0"
+      ],
+      "files": [
+        "LICENSE",
+        "LICENSE.md",
+        "LICENSE.txt",
+        "COPYING",
+        "COPYING.md",
+        "COPYING.txt"
+      ],
+      "metadata_files": [
+        "pyproject.toml",
+        "package.json",
+        "pubspec.yaml"
+      ],
+      "notice_files": [
+        "LICENSE-POLICY.md",
+        "NOTICE",
+        "NOTICE.md",
+        "README.md",
+        "docs/LICENSE-POLICY.md"
+      ],
+      "notice_markers": [
+        "Apache",
+        "License",
+        "Version 2.0"
+      ]
+    },
+    "dependencies": {
+      "manifest_globs": [
+        "package.json",
+        "**/package.json",
+        "pyproject.toml",
+        "**/pyproject.toml",
+        "pubspec.yaml",
+        "**/pubspec.yaml",
+        "CMakeLists.txt",
+        "**/CMakeLists.txt",
+        "requirements*.txt",
+        "**/requirements*.txt",
+        "Cargo.toml",
+        "**/Cargo.toml",
+        "go.mod",
+        "**/go.mod",
+        "Package.swift",
+        "**/Package.swift",
+        "vcpkg.json",
+        "**/vcpkg.json"
+      ],
+      "boundary_files": [
+        "DEPENDENCY-USAGE.md",
+        "THIRD-PARTY-NOTICES.md",
+        "docs/DEPENDENCY-USAGE.md",
+        "docs/dependencies.md",
+        "docs/third-party.md",
+        "docs/specs/DEPENDENCY-USAGE.md",
+        "docs/specs/dependencies.md",
+        "docs/specs/third-party.md"
+      ],
+      "required_marker_groups": [
+        "dependency|依赖",
+        "commercial|商业",
+        "authorization|授权",
+        "usage boundary|使用边界|边界"
+      ],
+      "warning_terms": [
+        "commercial license",
+        "commercial authorization",
+        "paid license",
+        "subscription",
+        "membership",
+        "member-only",
+        "trial license",
+        "evaluation only",
+        "proprietary",
+        "商业授权",
+        "商业许可证",
+        "付费授权",
+        "订阅",
+        "会员制",
+        "试用授权",
+        "专有许可证"
+      ]
+    },
+    "defect_records": {
+      "root": "docs/audit/defects",
+      "required_audit_fields": [
+        "**Severity:**",
+        "**Evidence:**",
+        "**Test evidence:**",
+        "**Data lifecycle:**",
+        "**Gate impact:**",
+        "**Required closure:**"
+      ],
+      "required_closure_fields": [
+        "**Closure evidence:**",
+        "**Coverage evidence:**",
+        "**Data lifecycle evidence:**",
+        "**Gate evidence:**"
+      ],
+      "closed_statuses": [
+        "closed",
+        "resolved",
+        "cleared"
+      ]
+    },
+    "ci_contract": {
+      "platform_adaptation": {
+        "linux": "platform-adaptation / linux-ci-gate"
+      },
+      "test_gates": {
+        "smoke": "test / smoke",
+        "golden_standard": "test / golden-standard"
+      },
+      "submit_readiness": "A Styio compiler version is submittable when `platform-adaptation / linux-ci-gate`, `test / smoke`, and `test / golden-standard` all pass.",
+      "golden_standard_suite": {
+        "manifest": "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md",
+        "required_files": [
+          "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md",
+          "docs/design/syntax/SYNTAX-CONVERGENCE-MATRIX.json",
+          "scripts/syntax-convergence-gate.py"
+        ],
+        "required_markers": {
+          "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md": [
+            "test / smoke",
+            "test / golden-standard",
+            "syntax-convergence-gate.py",
+            "submit readiness"
+          ],
+          "docs/design/syntax/SYNTAX-CONVERGENCE-MATRIX.json": [
+            "\"schema_version\": 1",
+            "\"features\"",
+            "\"implementation\""
+          ],
+          "scripts/syntax-convergence-gate.py": [
+            "exactly one implementation",
+            "golden_cases"
+          ]
+        }
+      },
+      "industry_gate_groups": {
+        "language / compiler-quality": {
+          "covered_by": "test / golden-standard",
+          "industry_references": [
+            "LLVM Testing Infrastructure Guide: unit, regression, lit/FileCheck, and whole-program tests",
+            "Rust Compiler Development Guide: compiler test suites and UI tests",
+            "OpenSSF Scorecard: CI tests, fuzzing, branch protection, binary artifacts"
+          ],
+          "required_markers": [
+            "syntax convergence",
+            "parser shadow",
+            "five-layer",
+            "milestone",
+            "fuzz",
+            "golden cases"
+          ]
+        }
+      },
+      "local_gate_profile": {
+        "profile_id": "styio-syntax-convergence-profile",
+        "manifest": "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md",
+        "covered_by": "test / golden-standard",
+        "required_markers": [
+          "repo-owned adaptation",
+          "syntax convergence matrix",
+          "parser legacy entry audit",
+          "five-layer pipeline cases"
+        ]
+      },
+      "required_files": [
+        ".github/workflows/styio-ci-gate.yml",
+        "scripts/workflow-scheduler.py",
+        "scripts/delivery-gate.sh",
+        "scripts/runtime-surface-gate.py",
+        "tests/workflow_scheduler_test.py",
+        "docs/assets/workflow/WORKFLOW-ORCHESTRATION.md",
+        "docs/assets/workflow/SYNTAX-ADDITION-WORKFLOW.md",
+        "docs/assets/workflow/DELIVERY-GATE.md"
+      ],
+      "marker_files": {
+        ".github/workflows/styio-ci-gate.yml": [
+          "name: styio-ci-gate",
+          "python3 scripts/workflow-scheduler.py run --profile ci-prebuild",
+          "styio-ci-gate"
+        ],
+        "scripts/workflow-scheduler.py": [
+          "WORKFLOW_DOCS",
+          "PROFILES",
+          "TOOLS",
+          "workflow-scheduler-check",
+          "workflow-scheduler-tests",
+          "repo-hygiene-tracked",
+          "repo-hygiene-push",
+          "runtime-surface",
+          "team-docs-base",
+          "docs-audit",
+          "ecosystem-cli-docs-workspace",
+          "syntax-local",
+          "delivery-checkpoint",
+          "delivery-push",
+          "ci-prebuild",
+          "WORKFLOW-ORCHESTRATION.md",
+          "SYNTAX-ADDITION-WORKFLOW.md"
+        ],
+        "scripts/delivery-gate.sh": [
+          "scripts/workflow-scheduler.py run",
+          "--profile delivery-checkpoint",
+          "--profile delivery-push"
+        ],
+        "tests/workflow_scheduler_test.py": [
+          "validate_registry",
+          "test_profile_phases_are_ordered",
+          "test_markdown_table_exposes_syntax_workflow"
+        ],
+        "docs/assets/workflow/WORKFLOW-ORCHESTRATION.md": [
+          "Separation Rules",
+          "Audit Table",
+          "Profiles",
+          "python3 scripts/workflow-scheduler.py check"
+        ],
+        "docs/assets/workflow/SYNTAX-ADDITION-WORKFLOW.md": [
+          "Step | Owner | Required Surface | Evidence | Boundary",
+          "python3 scripts/runtime-surface-gate.py",
+          "python3 scripts/workflow-scheduler.py run --profile syntax-local"
+        ],
+        "docs/assets/workflow/DELIVERY-GATE.md": [
+          "python3 scripts/workflow-scheduler.py run --profile delivery-checkpoint",
+          "python3 scripts/workflow-scheduler.py run --profile delivery-push"
+        ]
+      }
+    },
+    "branch": {
+      "required_refs": [
+        "release",
+        "stable",
+        "nightly"
+      ],
+      "development_bases": [
+        "nightly"
+      ],
+      "pr_flows": [
+        {
+          "head": "nightly",
+          "base": "stable"
+        },
+        {
+          "head": "stable",
+          "base": "release"
+        }
+      ]
+    }
+  },
+  "privacy_policy": {
+    "privacy_ip_allowlist": [
+      {
+        "service": "github-pages-apex-dns",
+        "ips": [
+          "185.199.108.153",
+          "185.199.109.153",
+          "185.199.110.153",
+          "185.199.111.153",
+          "2606:50c0:8000::153",
+          "2606:50c0:8001::153",
+          "2606:50c0:8002::153",
+          "2606:50c0:8003::153"
+        ],
+        "path_globs": [
+          "docs/dns-and-pages.html",
+          "docs/**/dns-and-pages.html",
+          "modules/default/module.json"
+        ]
+      }
+    ]
+  }
 }
