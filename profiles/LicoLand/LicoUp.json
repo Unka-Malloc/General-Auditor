@@ -408,6 +408,18 @@
         "kind": "config-object"
       },
       {
+        "path": "tests/integration/v71_usage_sources/fixtures/otlp-cumulative.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/integration/v71_usage_sources/fixtures/otlp-regressed.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/integration/v71_usage_sources/fixtures/otlp-restarted.json",
+        "kind": "config-object"
+      },
+      {
         "path": "crates/licoup-native/resources/gateway-credential-migration.json",
         "kind": "string-map"
       }

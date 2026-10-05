@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from general_auditor.config import default_profile, load_profile, validate_profile
 from general_auditor.repository_policy import evaluate
@@ -18,6 +19,14 @@ class RepositoryPolicyTests(unittest.TestCase):
         for path in (root/'profiles').glob('*/*.json'):
             with self.subTest(profile=path.name):
                 load_profile(root, path.parent.name+'/'+path.stem)
+
+    def test_unavailable_ignore_engine_records_incomplete_coverage(self):
+        with patch('general_auditor.repository_policy._ignored_candidates', side_effect=ValueError('unavailable')):
+            result = self.run_policy({'documentation_profile': 'lico-project'}, {'.gitignore': 'docs/plans/\n'})
+        rule = 'repository.documentation-local-asset-ignore'
+        self.assertIn(rule, result['coverage']['evaluated'])
+        self.assertTrue(any(row['rule'] == rule for row in result['coverage']['incomplete']))
+        self.assertFalse(any(row['rule'] == rule for row in result['findings']))
 
     def test_exact_admission_and_shape_are_enforced(self):
         policy={'data_profile':'common','json_admissions':[{'path':'configuration.json','kind':'string-map'}]}
@@ -43,6 +52,14 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertTrue(warnings)
         self.assertTrue(all(x['severity']=='warning' for x in warnings))
         self.assertNotIn('repository.server-security-signal',result['coverage']['blocking'])
+
+    def test_content_policy_signals_retain_actual_source_lines(self):
+        files = {'sample.py': '# Synthetic marker\nos.system(command)\n',
+                 'package.json': '{\n"description":"commercial license"\n}'}
+        result = self.run_policy({'server_boundary': {'required_manifest_groups': []},
+                                  'dependencies': {'boundary_files': ['DEPENDENCY-USAGE.md']}}, files)
+        signals = [row for row in result['findings'] if row['severity'] == 'warning']
+        self.assertEqual({(row['file'], row['line']) for row in signals}, {('sample.py', 2), ('package.json', 2)})
 
     def test_schema_fixture_cannot_admit_runtime_rows(self):
         policy={'data_profile':'licoup','schema_fixtures':['tests/synthetic.sql']}
@@ -114,13 +131,13 @@ jobs:
         self.assertIn('repository.documentation-required-section', rules)
         self.assertIn('repository.documentation-link-target', rules)
         link = next(row for row in result['findings'] if row['rule'] == 'repository.documentation-link-target')
-        self.assertEqual(link['severity'], 'warning')
+        self.assertEqual(link['severity'], 'error')
         self.assertEqual(link['file'], 'docs/README.md')
         self.assertEqual(link['line'], 1)
         self.assertFalse(self.run_policy({}, files)['coverage']['blocking'])
 
     def test_contribution_metadata_is_advisory_and_source_values_withheld(self):
-        result = self.run_policy({}, {'AUTHORS.md': '# Contributors\nCursor <redacted@example.invalid>\n'}, branch_refs=['refs/heads/codex/sample'], commit_metadata=[{'author_name': 'Cursor', 'committer_name': 'Synthetic', 'trailers': []}])
+        result = self.run_policy({}, {'AUTHORS.md': '# Contributors\nCursor <redacted@example.invalid>\n'}, branch_refs=['refs/heads/codex/sample'], commit_metadata=[{'author': 'Cursor <author@example.invalid>', 'committer': 'Synthetic <committer@example.invalid>', 'trailers': []}])
         rules = {row['rule'] for row in result['findings']}
         self.assertEqual(rules, {'contribution.cursor-attribution', 'contribution.commit-attribution', 'contribution.branch-prefix'})
         self.assertFalse(result['coverage']['blocking'])
@@ -128,3 +145,116 @@ jobs:
         self.assertTrue(all(row['severity'] == 'warning' for row in result['findings']))
         ordinary = self.run_policy({}, {'README.md': 'A cursor selects a character in the editor.'}, branch_refs=['refs/heads/work/edit'])
         self.assertFalse(ordinary['findings'])
+
+
+class DocumentationPolicyParityTests(unittest.TestCase):
+    def evaluate_documents(self, files):
+        profile = default_profile('Example/Source')
+        profile['repository_policy'] = {'documentation_profile': 'lico-project'}
+        rows = [{'path': path, 'kind': 'blob', 'mode': '100644', 'size': len(text)}
+                for path, text in files.items()]
+        return evaluate('Example/Source', profile, rows, files.__getitem__,
+                        {'branch_refs': [], 'commit_metadata': []})
+
+    def test_root_contributing_broken_link_is_structural(self):
+        result = self.evaluate_documents({'CONTRIBUTING.md': '[Guide](missing.md)'})
+        findings = [row for row in result['findings']
+                    if row['rule'] == 'repository.documentation-link-target']
+        self.assertEqual(['CONTRIBUTING.md'], [row['file'] for row in findings])
+        self.assertEqual(['error'], [row['severity'] for row in findings])
+        self.assertIn('repository.documentation-link-target', result['coverage']['blocking'])
+
+    def test_non_docs_generated_markdown_requires_provenance_and_update(self):
+        result = self.evaluate_documents({'reference.generated.md': '# Reference\n'})
+        rules = {row['rule'] for row in result['findings'] if row['file'] == 'reference.generated.md'}
+        self.assertIn('repository.documentation-generated-source', rules)
+        self.assertIn('repository.documentation-generated-update', rules)
+        result = self.evaluate_documents({
+            'reference.generated.md': 'Generated from source.py. Regenerate with the project generator.\n'})
+        self.assertFalse([row for row in result['findings']
+                          if row['file'] == 'reference.generated.md'])
+
+    def test_root_readmes_remain_excluded_from_generic_link_scan(self):
+        result = self.evaluate_documents({'README.md': '[External guide](missing.md)'})
+        self.assertNotIn('repository.documentation-link-target',
+                         {row['rule'] for row in result['findings']})
+
+    def test_nested_ignore_cannot_ignore_root_build_or_docs_assets(self):
+        from general_auditor.repository_policy import _ignored_candidates
+        paths = ['build/local.txt', 'docs/reports/local.md', 'nested/build/local.txt']
+        ignored = _ignored_candidates(paths, [('nested/.gitignore', 'build/\ndocs/reports/\n')])
+        self.assertEqual({'nested/build/local.txt'}, ignored)
+        result = self.evaluate_documents({'nested/.gitignore': 'build/\ndocs/reports/\n'})
+        self.assertIn('repository.documentation-local-asset-ignore', result['coverage']['blocking'])
+
+    def test_ignored_ancestor_prevents_file_negation_until_directory_reincluded(self):
+        from general_auditor.repository_policy import _ignored_candidates
+        path = 'build/keep.txt'
+        self.assertEqual({path}, _ignored_candidates([path], [
+            ('.gitignore', 'build/\n!build/keep.txt\n')]))
+        self.assertEqual(set(), _ignored_candidates([path], [
+            ('.gitignore', 'build/\n!build/\nbuild/*\n!build/keep.txt\n')]))
+        self.assertEqual({path}, _ignored_candidates([path], [
+            ('.gitignore', 'build/\n'), ('build/.gitignore', '!keep.txt\n')]))
+
+    def test_nested_negation_overrides_parent_pattern_with_correct_scope(self):
+        from general_auditor.repository_policy import _ignored_candidates
+        paths = ['root.tmp', 'nested/keep.tmp', 'nested/discard.tmp']
+        self.assertEqual({'root.tmp', 'nested/discard.tmp'}, _ignored_candidates(paths, [
+            ('.gitignore', '*.tmp\n'), ('nested/.gitignore', '!keep.tmp\n')]))
+
+
+class ContributionPolicyParityTests(unittest.TestCase):
+    def test_extensionless_registries_and_citation_are_inspected(self):
+        profile = default_profile('Example/Source')
+        files = {name: 'Cursor <fixture@example.invalid>\n' for name in (
+            'AUTHORS', 'CONTRIBUTORS', '.mailmap', '.all-contributorsrc')}
+        files['CITATION.cff'] = 'authors:\n  - name: Cursor\n'
+        rows = [{'path': path, 'kind': 'blob'} for path in files]
+        result = evaluate('Example/Source', profile, rows, files.__getitem__,
+                          {'head': 'a'*40, 'branch_refs': [], 'commit_metadata': []})
+        self.assertEqual(set(files), {finding['file'] for finding in result['findings']})
+        self.assertTrue(all(finding['severity'] == 'warning' for finding in result['findings']))
+        self.assertNotIn('fixture@example.invalid', json.dumps(result))
+
+    def test_text_helper_has_no_extension_filter_and_retains_each_location(self):
+        from general_auditor.repository_policy import evaluate_contribution_text
+        findings, evaluated = [], set()
+        def add(rule, path, message, **kwargs):
+            findings.append({'rule': rule, 'file': path, 'message': message, **kwargs})
+        evaluate_contribution_text('source.py', 'Generated-by: Cursor\nAssisted-by: Cursor\n', add, evaluated.add)
+        self.assertEqual([1, 2], [finding['line'] for finding in findings])
+        self.assertEqual({'contribution.cursor-attribution'}, evaluated)
+        self.assertNotIn('Cursor', json.dumps(findings))
+        findings.clear()
+        evaluate_contribution_text('source.py', 'authors = "Cursor"\n', add, evaluated.add)
+        self.assertEqual([], findings, 'An arbitrary source field is not project metadata')
+
+    def test_complete_commit_identity_and_all_attribution_trailers_keep_commit_locations(self):
+        profile = default_profile('Example/Source')
+        metadata = [
+            {'commit': '1'*40, 'author': 'Synthetic <cursor@example.invalid>',
+             'committer': 'Synthetic <fixture@example.invalid>', 'trailers': []},
+            {'commit': '2'*40, 'author': 'Synthetic <fixture@example.invalid>',
+             'committer': 'Synthetic <cursor@example.invalid>', 'trailers': []},
+        ]
+        for index, key in enumerate(('Co-authored-by', 'Signed-off-by', 'Authored-by',
+                                     'Committed-by', 'Generated-by', 'Assisted-by', 'Made-with'), 3):
+            metadata.append({'commit': str(index)*40, 'author': 'Synthetic',
+                             'committer': 'Synthetic', 'trailers': [key + ': Cursor']})
+        result = evaluate('Example/Source', profile, [], lambda _: None,
+                          {'head': 'a'*40, 'branch_refs': [], 'commit_metadata': metadata})
+        self.assertEqual({item['commit'] for item in metadata},
+                         {finding['commit'] for finding in result['findings']})
+        self.assertTrue(all(finding['severity'] == 'warning' for finding in result['findings']))
+        self.assertNotIn('example.invalid', json.dumps(result))
+
+    def test_meshrix_site_retains_common_data_policy_and_exact_domain_admissions(self):
+        profile, _ = load_profile(Path(__file__).resolve().parents[1], 'Meshrix-Platform/meshrix.io')
+        self.assertEqual('common', profile['repository_policy']['data_profile'])
+        self.assertEqual({'meshrix.io', 'img.shields.io'},
+                         {item['host'] for item in profile['privacy_policy']['privacy_domain_allowlist']})
+        result = evaluate('Meshrix-Platform/meshrix.io', profile,
+                          [{'path': 'runtime.csv', 'kind': 'blob'}], lambda _: 'id\n',
+                          {'branch_refs': [], 'commit_metadata': []})
+        self.assertIn('repository.data-file-admission', result['coverage']['blocking'])

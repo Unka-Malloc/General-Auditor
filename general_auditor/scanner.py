@@ -5,12 +5,13 @@ from contextlib import nullcontext
 from functools import lru_cache
 from pathlib import PurePosixPath
 import re
+import json
 from uuid import uuid4
 
 from .config import load_profile, repository_name, validate_profile
-from .gitdata import BlobReader, commit, git, tree, index_tree, worktree_tree
+from .gitdata import BlobReader, commit, git, tree, index_tree, worktree_tree, repository_root, unborn_head
 from .detection import scan_text, rule_catalog, redact_path
-from .repository_policy import evaluate
+from .repository_policy import evaluate, evaluate_data_files, evaluate_contribution_text, COMMIT_TRAILER, _public_finding
 from copy import deepcopy
 import os
 import stat
@@ -79,6 +80,9 @@ class BlobAnalysis:
     def inspect_text(self, path, text, size):
         detected = scan_text(text, path, profile=self.profile)
         hits = detected["findings"]
+        def add_attribution(rule, candidate_path, message, **options):
+            hits.append(_public_finding(rule, candidate_path, None, message, **options))
+        evaluate_contribution_text(path, text, add_attribution, lambda rule: None)
         for rule, regex in self.rules:
             if not applies(rule, path):
                 continue
@@ -135,7 +139,8 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
         raise ValueError("A range requires a base commit")
     if base and selected_scope != "range":
         raise ValueError("A base applies only to range scans")
-    head = commit(root, head)
+    root = repository_root(root)
+    head = None if selected_scope in {"staged", "worktree"} and head == "HEAD" and unborn_head(root) else commit(root, head)
     base = commit(root, base) if base else None
     scope = "commit-range" if selected_scope == "range" else selected_scope
     revisions = [head]
@@ -149,6 +154,8 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
             base = common.stdout.decode().strip()
             scope = "commit-range-after-divergence"
         revisions = git(root, "rev-list", "--reverse", base + ".." + head if base else head).stdout.decode().splitlines()
+    if selected_scope in {"staged", "worktree"}:
+        revisions = [None]
     rules = selected_rules(profile.get("additional_rule_groups", []))
     result = {
         "id": str(uuid4()), "repository": repository, "visibility": visibility,
@@ -157,29 +164,33 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
         "rule_ids": [rule.id for rule in rule_catalog()] + [rule.id for rule, _ in rules],
         "local_review": profile.get("local_review", []), "semantic_review": [],
         "local_review_files": [], "agent_review": "not_performed", "status": "completed", "findings": [],
-        "coverage": {"commits": len(revisions), "commit_ids": revisions, "text_versions": 0, "bytes": 0, "excluded": [],
+        "coverage": {"commits": sum(revision is not None for revision in revisions), "commit_ids": [revision for revision in revisions if revision is not None], "text_versions": 0, "bytes": 0, "excluded": [],
                      "privacy": {"evaluated_rule_ids": [rule.id for rule in rule_catalog()], "exempted": [], "finding_counts": []}},
     }
     metadata = dict(event or {})
-    metadata.update(head=head, trigger=trigger)
+    metadata.update(head=None if selected_scope in {"staged", "worktree"} else head, trigger=trigger)
     if "branch_refs" not in metadata:
         refs = git(root, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes").stdout.decode("utf-8", "replace").splitlines()
         metadata["branch_refs"] = sorted(set(ref if ref.startswith("refs/heads/") else "refs/heads/" + ref.split("/", 3)[-1] for ref in refs if not ref.endswith("/HEAD")))
     metadata["commit_metadata"] = []
     with BlobReader(root) as commits:
         for revision in revisions:
+            if revision is None:
+                continue
             kind, raw = commits.read_object(revision)
             if kind != "commit":
                 raise ValueError("Commit metadata unavailable")
             headers, _, message = raw.decode("utf-8", "replace").partition("\n\n")
-            record = {"trailers": [line for line in message.splitlines() if re.match(r"(?i)^(?:co-authored-by|signed-off-by|reviewed-by|committed-by):", line)]}
+            record = {"commit": revision, "trailers": [line for line in message.splitlines() if COMMIT_TRAILER.match(line)]}
             for key in ("author", "committer"):
-                match = re.search(r"(?m)^" + key + r" (.*?) <", headers)
-                record[key + "_name"] = match.group(1) if match else ""
+                match = re.search(r"(?m)^" + key + r" (.*)$", headers)
+                record[key] = match.group(1) if match else ""
             metadata["commit_metadata"].append(record)
     seen, topics, review_files = set(), {}, {}
     local_rows = list(index_tree(root)) if selected_scope == "staged" else list(worktree_tree(root)) if selected_scope == "worktree" else None
     candidates = list(tree(root, head)) if local_rows is None else local_rows
+    head_objects = {row[0]: row[3] for row in candidates}
+    historical_policy = {"findings": [], "evaluated": set(), "exempted": [], "incomplete": []}
     with (nullcontext(analysis) if analysis is not None else BlobAnalysis(root, rules, profile)) as analyzer:
         for revision in revisions:
             changed = None
@@ -198,9 +209,34 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
                     reason, inspected_bytes, detected = analyzer.inspect_text(path, text, len(text.encode("utf-8"))) if text is not None else ("symbolic link, external submodule or non-text content", 0, {})
                 else:
                     reason, inspected_bytes, detected = analyzer.inspect(path, mode, kind, oid, size)
+                if selected_scope in {"history", "range"} and head_objects.get(path) != oid:
+                    # Apply the same data-format contract to outgoing versions,
+                    # including binary exports later removed from the final tree.
+                    text_cache = {}
+                    def historical_read(candidate_path, rule):
+                        if candidate_path not in text_cache:
+                            text_cache[candidate_path] = _decode(analyzer.blobs.read(oid)) if kind == "blob" and mode != "120000" else None
+                        text = text_cache[candidate_path]
+                        if text is None:
+                            historical_policy["incomplete"].append({"rule": rule, "path": safe_path(candidate_path), "commit": revision, "reason": "historical text unavailable"})
+                        return text
+                    def historical_add(rule, candidate_path, message, **options):
+                        if rule == "repository.json-not-allowlisted" and candidate_path not in head_objects:
+                            # The former Auditor kept removed, valid JSON as a
+                            # review signal. Keyword matches never turn it into
+                            # a blocking finding under the current policy.
+                            try:
+                                json.loads(historical_read(candidate_path, rule))
+                            except (ValueError, TypeError, RecursionError):
+                                pass
+                            else:
+                                options["severity"] = "warning"
+                        historical_policy["findings"].append(_public_finding(rule, candidate_path, revision, message, **options))
+                    evaluate_data_files(profile, {path: dict(zip(("path", "mode", "kind", "oid", "size"), row[:5]))},
+                                        historical_read, historical_add, historical_policy["evaluated"].add, historical_policy["exempted"])
                 location = {"file": safe_path(path), "commit": revision, "object": oid, "mode": mode}
                 review_file = review_files.setdefault(safe_path(path), {"path": safe_path(path), "commits": [], "states": {}})
-                if revision not in review_file["commits"]:
+                if revision is not None and revision not in review_file["commits"]:
                     review_file["commits"].append(revision)
                 state = "excluded" if reason else "inspected"
                 review_file["states"][state] = review_file["states"].get(state, 0) + 1
@@ -224,12 +260,23 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
                 return None
             return _decode(_worktree_read(root, row[5]) if selected_scope == "worktree" else analyzer.blobs.read(row[3]))
         policy = evaluate(repository, profile, [dict(zip(("path", "mode", "kind", "oid", "size"), row[:5])) for row in candidates], read_text, metadata)
+    policy["findings"].extend(historical_policy["findings"])
+    if result["coverage"]["text_versions"]:
+        historical_policy["evaluated"].add("contribution.cursor-attribution")
+    policy["coverage"]["evaluated"] = sorted(set(policy["coverage"]["evaluated"]) | historical_policy["evaluated"])
+    policy["coverage"]["blocking"] = sorted(set(policy["coverage"]["blocking"]) | {item["rule"] for item in historical_policy["findings"] if item["severity"] == "error"})
+    policy["coverage"]["exempted"].extend(historical_policy["exempted"])
+    policy["coverage"]["incomplete"].extend(historical_policy["incomplete"])
     for item in policy["findings"]:
         item["file"] = safe_path(item["file"])
     for item in policy["coverage"].get("incomplete", []):
         if "path" in item:
             item["path"] = safe_path(item["path"])
-    result["findings"].extend(policy["findings"])
+    for item in policy["coverage"].get("exempted", []):
+        if "path" in item:
+            item["path"] = safe_path(item["path"])
+    attribution_locations = {(item["file"], item["commit"], item["rule"], item["line"]) for item in result["findings"] if item["rule"] == "contribution.cursor-attribution"}
+    result["findings"].extend(item for item in policy["findings"] if (item["file"], item["commit"], item["rule"], item["line"]) not in attribution_locations)
     result["coverage"]["policy"] = policy["coverage"]
     result["rule_ids"] = list(dict.fromkeys(result["rule_ids"] + policy["coverage"]["evaluated"]))
     result["local_review"] = policy["review_tasks"]

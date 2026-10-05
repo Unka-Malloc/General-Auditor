@@ -8,11 +8,14 @@ failures are errors. This module intentionally uses only the standard library.
 
 from collections.abc import Mapping, Sequence
 from fnmatch import fnmatchcase
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from urllib.parse import unquote
 import ipaddress
 import json
 import re
+import os
+import subprocess
+import tempfile
 
 from .detection.paths import redact_path
 
@@ -213,6 +216,15 @@ CURSOR_IDENTITY = re.compile(r"(?i)(?<![a-z0-9])cursor(?:ai|bot|agent|[\s_.-]+(?
 CONTRIBUTOR_FIELD = re.compile(r"(?i)\b(?:authors?|contributors?|maintainers?|developers?|credits?)\b\s*[\"']?\s*[:=]")
 CONTRIBUTOR_HEADING = re.compile(r"(?im)^#{1,6}\s+(?:authors?|contributors?|maintainers?|credits?)\s*$")
 COMMIT_TRAILER = re.compile(r"(?im)^(?:co-authored-by|signed-off-by|authored-by|committed-by|generated-by|assisted-by|made-with)\s*:[^\r\n]*")
+
+CONTRIBUTOR_FILE_NAMES = frozenset({
+    ".all-contributorsrc", ".mailmap", "authors", "authors.md", "authors.txt",
+    "contributors", "contributors.md", "contributors.txt",
+})
+PROJECT_METADATA_FILE_NAMES = frozenset({
+    "cargo.toml", "citation.cff", "composer.json", "package.json", "pom.xml",
+    "pubspec.yaml", "pyproject.toml",
+})
 
 
 def _safe_relative(path):
@@ -570,28 +582,37 @@ def _markdown_links_to(text, target_path):
     return False
 
 
-def _ignore_matches(pattern, path):
-    pattern = pattern.strip().lstrip("/")
-    if not pattern or pattern.startswith("#"): return False
-    directory = pattern.endswith("/") or pattern.endswith("/**")
-    pattern = pattern.rstrip("/")
-    if directory:
-        return path == pattern or path.startswith(pattern + "/") or any(part == pattern for part in PurePosixPath(path).parts)
-    if "/" not in pattern:
-        return any(fnmatchcase(part, pattern) for part in PurePosixPath(path).parts)
-    return fnmatchcase(path, pattern) or path.startswith(pattern.rstrip("*") .rstrip("/" ) + "/")
+def _ignored_candidates(paths, gitignore_files):
+    """Apply Git's own ignore semantics to immutable candidate ignore files.
 
-
-def _ignored_by_candidate(path, gitignore_texts):
-    ignored = False
-    for text in gitignore_texts:
-        for raw in text.splitlines():
-            pattern = raw.strip()
-            if not pattern or pattern.startswith("#"): continue
-            negate = pattern.startswith("!")
-            pattern = pattern[1:] if negate else pattern
-            if _ignore_matches(pattern, path): ignored = not negate
-    return ignored
+    Only ignore-file text enters the disposable repository. No source, hooks,
+    templates, user Git configuration or target executables are loaded.
+    """
+    paths = list(paths)
+    if not paths:
+        return set()
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_") and key not in {"GH_TOKEN", "GITHUB_TOKEN"}}
+    environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
+                       GIT_CONFIG_SYSTEM=os.devnull, GIT_TERMINAL_PROMPT="0")
+    with tempfile.TemporaryDirectory(prefix="auditor-ignore-") as directory:
+        command = ["git", "-c", "core.hooksPath=" + os.devnull,
+                   "-c", "core.excludesFile=" + os.devnull, "-C", directory]
+        initialized = subprocess.run([*command, "init", "--quiet", "--template="], env=environment,
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if initialized.returncode:
+            raise ValueError("Candidate ignore semantics could not be evaluated")
+        for path, text in gitignore_files:
+            if not _safe_relative(path) or ".git" in PurePosixPath(path).parts or PurePosixPath(path).name != ".gitignore":
+                raise ValueError("Invalid candidate ignore-file path")
+            destination = Path(directory) / path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(text, encoding="utf-8")
+        result = subprocess.run([*command, "check-ignore", "--no-index", "--stdin", "-z"],
+                                env=environment, input="\0".join(paths).encode() + b"\0",
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode not in {0, 1}:
+            raise ValueError("Candidate ignore semantics could not be evaluated")
+        return set(result.stdout.decode().rstrip("\0").split("\0")) if result.stdout else set()
 
 
 def _resource_task(resource):
@@ -614,6 +635,87 @@ def _public_finding(rule, path, head, message, *, severity="error", line=None, c
         "impact": "Potential policy or disclosure risk; confirm scope and context locally.",
         "action": action or "Review the cited file or metadata and correct the contract or centrally maintained profile.",
     }
+
+
+def evaluate_contribution_text(path, text, add, mark):
+    """Emit redacted advisory attribution locations for any decoded text blob."""
+    rule = "contribution.cursor-attribution"
+    mark(rule)
+    file_name = PurePosixPath(path).name.casefold()
+    for match in CURSOR_IDENTITY.finditer(text):
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        line_end = text.find("\n", match.start())
+        line = text[line_start:line_end if line_end >= 0 else len(text)]
+        prefix_start = max(0, match.start() - 1024)
+        prefix = text[prefix_start:match.start()]
+        fields = list(CONTRIBUTOR_FIELD.finditer(prefix))
+        headings = list(CONTRIBUTOR_HEADING.finditer(prefix))
+        context = (
+            file_name in CONTRIBUTOR_FILE_NAMES
+            or bool(COMMIT_TRAILER.match(line))
+            or (file_name in PROJECT_METADATA_FILE_NAMES and bool(fields)
+                and match.start() - (prefix_start + fields[-1].end()) <= 512)
+            or (bool(headings) and not re.search(r"(?m)^#{1,6}\s+", prefix[headings[-1].end():]))
+        )
+        if context:
+            add(rule, path, "Contributor or attribution metadata contains an automated-tool identity signal.",
+                severity="warning", line=text.count("\n", 0, match.start()) + 1,
+                category="Contributor metadata", action="Check the attribution context and publication policy; the identity text is withheld and is not treated as a leak or verdict.")
+
+
+def evaluate_data_files(profile, rows, read, add, mark, exempted):
+    """Evaluate data admissions for selected immutable file versions.
+
+    Current repository-wide structural evaluation and historical blob scans use
+    the same policy. The caller owns historical removal classification after
+    combining structural results with privacy findings for that blob.
+    """
+    policy = profile.get("repository_policy", {})
+    names = set(rows)
+    data_profile = policy.get("data_profile")
+    if data_profile:
+        rule = "repository.data-file-admission"
+        mark(rule)
+        for path in sorted(names):
+            suffix = PurePosixPath(path).suffix.lower()
+            if suffix in BINARY_DATA_SUFFIXES:
+                add(rule, path, "A database, spreadsheet, columnar file or binary data artifact is not an admitted source format.", category="Data-file policy", action="Keep datasets and generated binary data outside Git or use a reviewed synthetic fixture format.")
+                continue
+            if suffix in DATA_DUMP_SUFFIXES:
+                allowed_fixture = data_profile == "licoup" and any(re.fullmatch(pattern, path) for pattern in LICOUP_SYNTHETIC_DATA_PATTERNS)
+                if path in policy.get("schema_fixtures", []):
+                    fixture = read(path, rule)
+                    allowed_fixture = fixture is not None and _schema_only_sql(fixture)
+
+                if allowed_fixture:
+                    exempted.append({"rule": rule, "path": path, "count": 1})
+                else:
+                    add(rule, path, "A tabular, SQL dump or line-delimited data export is not admitted by this repository profile.", category="Data-file policy", action="Remove exported data or move a synthetic fixture to a centrally approved path.")
+            if suffix != ".json" or not rows[path].get("kind") in {None, "blob"}:
+                continue
+            normalized = path.lower()
+            admission = next((item for item in policy.get("json_admissions", []) if item["path"] == path), None)
+            allowed = admission is not None or _path_profile(data_profile, normalized)
+            if not allowed:
+                add("repository.json-not-allowlisted", path, "This repository profile does not admit JSON at this path by default.", category="Data-file policy", action="Use an approved configuration, schema, manifest or synthetic fixture path; update only the central profile after review.")
+                continue
+            text = read(path, "repository.json-configuration")
+            if text is None: continue
+            try:
+                data = json.loads(text, object_pairs_hook=_json_object, parse_constant=_json_constant)
+            except (ValueError, RecursionError):
+                add("repository.json-invalid", path, "An allowlisted JSON file is not strict valid JSON.", category="Data-file policy")
+                continue
+            if admission is not None:
+                kind = admission["kind"]
+                shape_ok = (isinstance(data, dict) if kind == "config-object" else
+                            isinstance(data, (dict, list)) if kind == "json" else
+                            isinstance(data, list) and len(data) <= 1000 and all(isinstance(v, str) and bool(v.strip()) for v in data) if kind == "string-array" else
+                            isinstance(data, dict) and len(data) <= 1000 and all(isinstance(k, str) and isinstance(v, str) for k, v in data.items()))
+            else:
+                shape_ok = _json_shape_ok(data_profile, normalized, data)
+            if not shape_ok:
+                add("repository.json-shape-invalid", path, "An allowlisted JSON file does not have an approved configuration or fixture shape.", category="Data-file policy")
 
 
 def evaluate(repository, profile, paths, read_text, event):
@@ -654,8 +756,8 @@ def evaluate(repository, profile, paths, read_text, event):
         text_cache[path] = value
         return value
 
-    def add(rule, path, message, *, severity="error", line=None, category="Repository contract", action=None, basis=None):
-        row = _public_finding(rule, path, head, message, severity=severity, line=line, category=category, action=action, basis=basis)
+    def add(rule, path, message, *, severity="error", line=None, category="Repository contract", action=None, basis=None, commit=None):
+        row = _public_finding(rule, path, head if commit is None else commit, message, severity=severity, line=line, category=category, action=action, basis=basis)
         findings.append(row)
         if severity == "error": blocking.add(rule)
 
@@ -702,50 +804,7 @@ def evaluate(repository, profile, paths, read_text, event):
             elif isinstance(size, int) and size > max_bytes:
                 add(rule, path, "The repository file exceeds the declared 5 MiB source-size limit.", action="Move large generated artifacts or datasets to artifact storage, or review the centrally maintained exception scope.", category="Repository hygiene")
 
-    data_profile = policy.get("data_profile")
-    if data_profile:
-        rule = "repository.data-file-admission"
-        mark(rule)
-        for path in sorted(names):
-            suffix = PurePosixPath(path).suffix.lower()
-            if suffix in BINARY_DATA_SUFFIXES:
-                add(rule, path, "A database, spreadsheet, columnar file or binary data artifact is not an admitted source format.", category="Data-file policy", action="Keep datasets and generated binary data outside Git or use a reviewed synthetic fixture format.")
-                continue
-            if suffix in DATA_DUMP_SUFFIXES:
-                allowed_fixture = data_profile == "licoup" and any(re.fullmatch(pattern, path) for pattern in LICOUP_SYNTHETIC_DATA_PATTERNS)
-                if path in policy.get("schema_fixtures", []):
-                    fixture = read(path, rule)
-                    allowed_fixture = fixture is not None and _schema_only_sql(fixture)
-
-                if allowed_fixture:
-                    exempted.append({"rule": rule, "path": path, "count": 1})
-                else:
-                    add(rule, path, "A tabular, SQL dump or line-delimited data export is not admitted by this repository profile.", category="Data-file policy", action="Remove exported data or move a synthetic fixture to a centrally approved path.")
-            if suffix != ".json" or not rows[path].get("kind") in {None, "blob"}:
-                continue
-            normalized = path.lower()
-            admission = next((item for item in policy.get("json_admissions", []) if item["path"] == path), None)
-            allowed = admission is not None or _path_profile(data_profile, normalized)
-            if not allowed:
-                add("repository.json-not-allowlisted", path, "This repository profile does not admit JSON at this path by default.", category="Data-file policy", action="Use an approved configuration, schema, manifest or synthetic fixture path; update only the central profile after review.")
-                continue
-            text = read(path, "repository.json-configuration")
-            if text is None: continue
-            try:
-                data = json.loads(text, object_pairs_hook=_json_object, parse_constant=_json_constant)
-            except (ValueError, RecursionError):
-                add("repository.json-invalid", path, "An allowlisted JSON file is not strict valid JSON.", category="Data-file policy")
-                continue
-            if admission is not None:
-                kind = admission["kind"]
-                shape_ok = (isinstance(data, dict) if kind == "config-object" else
-                            isinstance(data, (dict, list)) if kind == "json" else
-                            isinstance(data, list) and len(data) <= 1000 and all(isinstance(v, str) and bool(v.strip()) for v in data) if kind == "string-array" else
-                            isinstance(data, dict) and len(data) <= 1000 and all(isinstance(k, str) and isinstance(v, str) for k, v in data.items()))
-            else:
-                shape_ok = _json_shape_ok(data_profile, normalized, data)
-            if not shape_ok:
-                add("repository.json-shape-invalid", path, "An allowlisted JSON file does not have an approved configuration or fixture shape.", category="Data-file policy")
+    evaluate_data_files(profile, rows, read, add, mark, exempted)
 
     doc_profile = policy.get("documentation_profile")
     if doc_profile:
@@ -779,19 +838,25 @@ def evaluate(repository, profile, paths, read_text, event):
                 if path not in {"docs/README.md"} and path not in {p for p in LICO_FORMAL_FILES if p.startswith("docs/")} and not _localized_formal(path) and not formal:
                     mark("repository.documentation-formal-path")
                     add("repository.documentation-formal-path", path, "Formal project Markdown is outside the repository's approved documentation categories.", category="Documentation governance")
-        gitignore_texts = []
+        gitignore_files = []
         for path in sorted(names):
             if PurePosixPath(path).name == ".gitignore":
                 text = read(path, "repository.documentation-local-asset-ignore")
-                if text is not None: gitignore_texts.append(text)
+                if text is not None: gitignore_files.append((path, text))
+        mark("repository.documentation-local-asset-ignore")
+        try:
+            ignored_sentinels = _ignored_candidates(LICO_IGNORE_SENTINELS, gitignore_files)
+        except (ValueError, OSError):
+            ignored_sentinels = None
+            incomplete.append({"rule": "repository.documentation-local-asset-ignore", "reason": "candidate ignore semantics unavailable"})
         for sentinel in LICO_IGNORE_SENTINELS:
             mark("repository.documentation-local-asset-ignore")
             if sentinel in names:
                 add("repository.documentation-local-asset-ignore", sentinel, "A local-only documentation or build asset is tracked.", category="Documentation governance")
-            elif not _ignored_by_candidate(sentinel, gitignore_texts):
+            elif ignored_sentinels is not None and sentinel not in ignored_sentinels:
                 add("repository.documentation-local-asset-ignore", str(PurePosixPath(sentinel).parent) + "/", "The repository does not ignore this local-only asset directory.", category="Documentation governance")
         markdown = {}
-        for path in doc_paths:
+        for path in sorted(path for path in names if path.lower().endswith(".md") and path not in {"README.md", "README.zh-CN.md"}):
             text = read(path, "repository.documentation-markdown-read")
             if text is not None: markdown[path] = text
         for path, text in markdown.items():
@@ -800,7 +865,7 @@ def evaluate(repository, profile, paths, read_text, event):
                 if target is None: continue
                 mark("repository.documentation-link-target")
                 if target not in names and not any(candidate.startswith(target.rstrip("/") + "/") for candidate in names):
-                    add("repository.documentation-link-target", path, "A local Markdown link does not resolve inside the candidate tree.", severity="warning", line=text.count("\n", 0, match.start()) + 1, category="Documentation")
+                    add("repository.documentation-link-target", path, "A local Markdown link does not resolve inside the candidate tree.", line=text.count("\n", 0, match.start()) + 1, category="Documentation")
             if not (path.endswith(".generated.md") or GENERATED_MARKER.search(text)): continue
             if not GENERATED_SOURCE.search(text):
                 mark("repository.documentation-generated-source")
@@ -844,34 +909,23 @@ def evaluate(repository, profile, paths, read_text, event):
             if expected is None and base_ref not in development_bases and required_heads:
                 add(rule, "<pull-request>", "This promoted branch accepts pull requests only from its declared predecessor.", category="Branch governance")
 
-    # Lico contribution indicators are deliberately advisory: names and
-    # attribution metadata are signals, not automatic authorship judgments.
+    # Explicit metadata file names include extensionless contributor registries.
     for path in sorted(names):
-        if PurePosixPath(path).suffix.lower() not in {".md", ".json", ".toml", ".yaml", ".yml", ".txt", ".xml"}:
+        file_name = PurePosixPath(path).name.casefold()
+        if (file_name not in CONTRIBUTOR_FILE_NAMES | PROJECT_METADATA_FILE_NAMES
+                and PurePosixPath(path).suffix.lower() not in {".md", ".json", ".toml", ".yaml", ".yml", ".txt", ".xml"}):
             continue
         text = read(path, "contribution.cursor-attribution")
-        if text is None: continue
-        line_offsets = [0]
-        line_offsets.extend(match.end() for match in re.finditer("\n", text))
-        contributor_context = path.rsplit("/", 1)[-1].lower() in {".all-contributorsrc", ".mailmap", "authors", "authors.md", "authors.txt", "contributors", "contributors.md", "contributors.txt"}
-        for match in CURSOR_IDENTITY.finditer(text):
-            line = text[text.rfind("\n", 0, match.start()) + 1:text.find("\n", match.start()) if text.find("\n", match.start()) >= 0 else len(text)]
-            prefix = text[max(0, match.start() - 1024):match.start()]
-            heading = list(CONTRIBUTOR_HEADING.finditer(prefix))
-            context = contributor_context or bool(COMMIT_TRAILER.match(line)) or bool(CONTRIBUTOR_FIELD.search(prefix[-1024:])) or (bool(heading) and not re.search(r"(?m)^#{1,6}\s+", prefix[heading[-1].end():]))
-            if context:
-                mark("contribution.cursor-attribution")
-                add("contribution.cursor-attribution", path, "Contributor or attribution metadata contains an automated-tool identity signal.", severity="warning", line=text.count("\n", 0, match.start()) + 1, category="Contributor metadata", action="Check the attribution context and publication policy; the identity text is withheld and is not treated as a leak or verdict.")
-                break
+        if text is not None:
+            evaluate_contribution_text(path, text, add, mark)
     commit_metadata = event.get("commit_metadata")
     if isinstance(commit_metadata, list):
         for item in commit_metadata:
             if not isinstance(item, Mapping): continue
-            values = [item.get("author_name"), item.get("committer_name"), *item.get("trailers", [])] if isinstance(item.get("trailers", []), list) else [item.get("author_name"), item.get("committer_name")]
+            values = [item.get("author"), item.get("committer"), *item.get("trailers", [])] if isinstance(item.get("trailers", []), list) else [item.get("author"), item.get("committer")]
             if any(isinstance(value, str) and CURSOR_IDENTITY.search(value) for value in values):
                 mark("contribution.commit-attribution")
-                add("contribution.commit-attribution", "<commit-metadata>", "Commit attribution contains an automated-tool identity signal.", severity="warning", category="Contributor metadata", action="Review commit attribution locally; author names, email addresses and trailer text are withheld.")
-                break
+                add("contribution.commit-attribution", "<commit-metadata>", "Commit attribution contains an automated-tool identity signal.", severity="warning", category="Contributor metadata", action="Review commit attribution locally; author names, email addresses and trailer text are withheld.", commit=item.get("commit"))
     branch_refs = event.get("branch_refs")
     if isinstance(branch_refs, list):
         mark("contribution.branch-prefix")
@@ -891,7 +945,7 @@ def evaluate(repository, profile, paths, read_text, event):
         files = license_policy.get("files", list(LICENSE_FILES))
         existing = sorted(set(files) & names)
         spdx = [item.casefold() for item in license_policy.get("spdx", ["Apache-2.0"])]
-        markers = [item.casefold() for item in license_policy.get("text_markers", ["Apache License", "Version 2.0"])]
+        markers = [re.sub(r"\s+", " ", item.casefold()) for item in license_policy.get("text_markers", ["Apache License", "Version 2.0"])]
         if not existing:
             add(rule, files[0], "No declared source-license file is present.", category="License evidence")
         else:
@@ -899,7 +953,7 @@ def evaluate(repository, profile, paths, read_text, event):
             for path in existing:
                 text = read(path, rule)
                 if text is not None:
-                    lowered = text.casefold()
+                    lowered = re.sub(r"\s+", " ", text.casefold())
                     valid |= any(identifier in lowered for identifier in spdx) or all(marker in lowered for marker in markers)
             if not valid:
                 add(rule, existing[0], "The declared source-license file does not contain the required license evidence.", category="License evidence")
@@ -907,18 +961,24 @@ def evaluate(repository, profile, paths, read_text, event):
             if path not in names: continue
             text = read(path, rule)
             if text is None: continue
-            value = _metadata_license(path, text)
-            if value is None:
-                add(rule, path, "Package metadata does not declare the required source license.", category="License evidence")
-            elif not (any(identifier in value.casefold() for identifier in spdx) or all(marker in value.casefold() for marker in markers)):
-                add(rule, path, "Package metadata declares a license outside this repository's source-license contract.", category="License evidence")
+            try:
+                values = _metadata_license(path, text)
+            except ValueError:
+                incomplete.append({"rule": rule, "path": path, "reason": "license metadata could not be parsed"})
+                add(rule, path, "License metadata cannot be parsed as the declared manifest format.", category="License evidence")
+                continue
+            for value in values:
+                if value is None:
+                    add(rule, path, "Package metadata does not declare the required source license.", category="License evidence")
+                elif not (any(identifier in value.casefold() for identifier in spdx) or all(marker in re.sub(r"\s+", " ", value.casefold()) for marker in markers)):
+                    add(rule, path, "Package metadata declares a license outside this repository's source-license contract.", category="License evidence")
         notice_files = license_policy.get("notice_files", list(LICENSE_NOTICE_FILES))
-        notice_markers = [item.casefold() for item in license_policy.get("notice_markers", ["Apache", "License", "Version 2.0"])]
+        notice_markers = [re.sub(r"\s+", " ", item.casefold()) for item in license_policy.get("notice_markers", ["Apache", "License", "Version 2.0"])]
         notice_found = False
         for path in notice_files:
             if path not in names: continue
             text = read(path, rule)
-            if text is not None and all(marker in text.casefold() for marker in notice_markers): notice_found = True
+            if text is not None and all(marker in re.sub(r"\s+", " ", text.casefold()) for marker in notice_markers): notice_found = True
         if not notice_found:
             add(rule, notice_files[0], "No source-distribution notice contains the required license markers.", category="License evidence", action="Restore license and source-distribution notice evidence required by the Styio source policy.")
 
@@ -929,6 +989,7 @@ def evaluate(repository, profile, paths, read_text, event):
         manifest_globs = dependency_policy.get("manifest_globs", list(DEPENDENCY_GLOBS))
         manifest_paths = sorted(path for path in names if _matches_any(path, manifest_globs) and not set(PurePosixPath(path).parts) & set(dependency_policy.get("ignored_parts", ("node_modules", "vendor", "build", "dist", ".git"))))
         boundary_paths = [path for path in dependency_policy.get("boundary_files", list(DEPENDENCY_BOUNDARY_FILES)) if path in names]
+        boundary = None
         if not boundary_paths:
             add(rule, dependency_policy.get("boundary_files", list(DEPENDENCY_BOUNDARY_FILES))[0], "Dependency license and usage-boundary evidence is missing.", category="Dependency governance")
         else:
@@ -940,17 +1001,25 @@ def evaluate(repository, profile, paths, read_text, event):
                 for group in dependency_policy.get("required_marker_groups", list(DEPENDENCY_MARKER_GROUPS)):
                     if not _marker_group_matches(boundary, group):
                         add(rule, boundary_paths[0], "Dependency usage-boundary documentation is missing a required topic.", category="Dependency governance")
-                dependency_names = {}
-                for path in manifest_paths:
-                    text = read(path, rule)
-                    if text is None: continue
-                    for term in dependency_policy.get("warning_terms", list(COMMERCIAL_TERMS)):
-                        if term.casefold() in text.casefold():
-                            add("repository.dependency-commercial-signal", path, "A dependency manifest contains a commercial-use term that requires contextual review.", severity="warning", category="Dependency governance", action="Review the dependency's actual license and use conditions; the term alone is not a violation.")
-                    for name in _dependencies(path, text): dependency_names.setdefault(name.casefold(), path)
-                for name, path in dependency_names.items():
-                    if name not in boundary:
-                        add(rule, path, "A declared dependency is not named in dependency usage-boundary evidence.", category="Dependency governance", action="Record license and usage-boundary evidence for every declared direct dependency.")
+        dependency_names = {}
+        for path in manifest_paths:
+            text = read(path, rule)
+            if text is None: continue
+            for term in dependency_policy.get("warning_terms", list(COMMERCIAL_TERMS)):
+                pattern = re.compile(r"\s+".join(re.escape(part) for part in term.split()), re.I)
+                line = _line_for(text, pattern)
+                if line is not None:
+                    add("repository.dependency-commercial-signal", path, "A dependency manifest contains a commercial-use term that requires contextual review.", severity="warning", line=line, category="Dependency governance", action="Review the dependency's actual license and use conditions; the term alone is not a violation.")
+            try:
+                parsed_names = _dependencies(path, text)
+            except ValueError:
+                incomplete.append({"rule": rule, "path": path, "reason": "dependency declarations could not be parsed"})
+                add(rule, path, "Dependency declarations cannot be parsed as the declared manifest format.", category="Dependency governance")
+                continue
+            for name in parsed_names: dependency_names.setdefault(name.casefold(), path)
+        for name, path in dependency_names.items():
+            if boundary is not None and name not in boundary:
+                add(rule, path, "A declared dependency is not named in dependency usage-boundary evidence.", category="Dependency governance", action="Record license and usage-boundary evidence for every declared direct dependency.")
 
     if policy.get("resource_contracts"):
         rule = "repository.resource-scope"
@@ -991,10 +1060,11 @@ def evaluate(repository, profile, paths, read_text, event):
             if PurePosixPath(path).suffix.lower() not in suffixes or set(PurePosixPath(path).parts) & ignored: continue
             text = read(path, rule)
             if text is None: continue
-            normalized = re.sub(r"\s+", " ", text.casefold())
             for category, terms in SERVER_DANGEROUS_MARKERS.items():
-                if any(re.sub(r"\s+", " ", term.casefold()) in normalized for term in terms):
-                    add(rule, path, "A source-code security marker requires contextual review.", severity="warning", category="Server security", action="Determine whether this is executable behavior, a negative test, documentation, or another benign reference; marker matches never block by themselves.")
+                pattern = re.compile("|".join(r"\s+".join(re.escape(part) for part in term.split()) for term in terms), re.I)
+                line = _line_for(text, pattern)
+                if line is not None:
+                    add(rule, path, "A source-code security marker requires contextual review.", severity="warning", line=line, category="Server security", action="Determine whether this is executable behavior, a negative test, documentation, or another benign reference; marker matches never block by themselves.")
 
     defect_policy = policy.get("defect_records")
     if defect_policy:
@@ -1057,84 +1127,207 @@ def _field_has_value(text, field):
     return re.search(r"(?m)^" + re.escape(field) + r"\s*\S+", text) is not None
 
 
+def _manifest_json(text):
+    data = json.loads(text, object_pairs_hook=_json_object, parse_constant=_json_constant)
+    if not isinstance(data, dict):
+        raise ValueError("Manifest must be an object")
+    return data
+
+
+def _manifest_toml(text):
+    import tomllib
+    return tomllib.loads(text)
+
+
 def _metadata_license(path, text):
+    """Return every declared license, so one valid field cannot hide another."""
     name = PurePosixPath(path).name
     if name == "package.json":
-        try: data = json.loads(text)
-        except ValueError: return None
-        license_value = data.get("license") if isinstance(data, dict) else None
-        if isinstance(license_value, str): return license_value
-        if isinstance(license_value, dict): return " ".join(str(value) for value in license_value.values() if isinstance(value, str))
-        return None
+        value = _manifest_json(text).get("license")
+        return [value if isinstance(value, str) or value is None else json.dumps(value)]
     if name == "pyproject.toml":
-        try:
-            import tomllib
-            data = tomllib.loads(text)
-        except (ImportError, ValueError): return None
-        project = data.get("project", {}) if isinstance(data, dict) else {}
-        value = project.get("license") if isinstance(project, dict) else None
-        if isinstance(value, str): return value
-        if isinstance(value, dict): return " ".join(str(item) for item in value.values() if isinstance(item, str))
-        return None
+        data = _manifest_toml(text)
+        values = []
+        def visit(table):
+            for key, value in table.items():
+                if key == "license":
+                    values.append(value if isinstance(value, str) else json.dumps(value))
+                elif isinstance(value, dict):
+                    visit(value)
+        visit(data)
+        return values or [None]
     if name == "pubspec.yaml":
-        match = re.search(r"(?m)^\s*license\s*:\s*(.+?)\s*$", text)
-        return match.group(1).strip().strip("'\"") if match else None
-    return None
+        values = []
+        for line in text.splitlines():
+            match = re.match(r"^\s*license\s*:\s*(.*?)\s*$", line)
+            if match:
+                value = re.split(r"\s+#", match.group(1), maxsplit=1)[0].strip()
+                if not value or value in {"|", ">"} or value.startswith(("*", "&", "[", "{")):
+                    raise ValueError("Unsupported or missing license scalar")
+                if value.startswith(('"', "'")):
+                    if len(value) < 2 or value[-1] != value[0]:
+                        raise ValueError("Unterminated license scalar")
+                    value = value[1:-1]
+                values.append(value)
+        return values or [None]
+    return []
+
+
+def _dependency_requirement(value):
+    if not isinstance(value, str):
+        raise ValueError("Dependency requirements must be strings")
+    value = value.strip().strip("'\"")
+    if not value or value.startswith(("#", "-", ".")):
+        return None
+    value = value.split(";", 1)[0].split("#", 1)[0].strip()
+    match = re.match(r"([A-Za-z0-9][A-Za-z0-9_.-]*)(?:\s|\[|[<>=!~@]|$)", value)
+    if not match:
+        raise ValueError("Unrecognized dependency requirement")
+    return match.group(1)
+
+
+def _source_without_comments(text, *, cmake=False):
+    # Preserve quoted strings (including URLs), dropping only source comments.
+    comments = r"\#\[(=*)\[.*?\]\1\]|\#[^\n]*" if cmake else r"/\*.*?\*/|//[^\n]*"
+    token = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|' + comments, re.S)
+    return token.sub(lambda match: match.group(0) if match.group(0).startswith(('"', "'")) else "\n" * match.group(0).count("\n") + " ", text)
+
+
+def _manifest_calls(text, command_pattern, *, cmake=False):
+    text = _source_without_comments(text, cmake=cmake)
+    token = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|(?P<command>' + command_pattern + r')\s*\(', re.I | re.S)
+    cursor = 0
+    while match := token.search(text, cursor):
+        cursor = match.end()
+        if match.group("command") is None:
+            continue
+        start, depth, quote, escaped = cursor, 1, None, False
+        while cursor < len(text) and depth:
+            char = text[cursor]
+            if quote:
+                if escaped: escaped = False
+                elif char == "\\": escaped = True
+                elif char == quote: quote = None
+            elif char in {'"', "'"}: quote = char
+            elif char == "(": depth += 1
+            elif char == ")": depth -= 1
+            cursor += 1
+        if depth or quote:
+            raise ValueError("Unterminated dependency declaration")
+        yield match.group("command"), text[start:cursor - 1]
 
 
 def _dependencies(path, text):
+    """Extract declared dependency identities without executing a manifest."""
     name = PurePosixPath(path).name
     result = set()
+    def mapping(value):
+        if not isinstance(value, dict): raise ValueError("Dependency section must be a mapping")
+        return value
+    def requirements(values):
+        if not isinstance(values, list): raise ValueError("Dependency section must be a list")
+        for value in values:
+            dependency = _dependency_requirement(value)
+            if dependency: result.add(dependency)
     if name in {"package.json", "package-lock.json"}:
-        try: data = json.loads(text)
-        except ValueError: return result
-        if isinstance(data, dict):
-            for group in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
-                if isinstance(data.get(group), dict): result.update(str(item) for item in data[group])
+        data = _manifest_json(text)
+        for group in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "bundledDependencies", "bundleDependencies"):
+            if group not in data: continue
+            values = data[group]
+            if isinstance(values, dict): result.update(values)
+            elif isinstance(values, list) and all(isinstance(value, str) and value for value in values): result.update(values)
+            else: raise ValueError("Invalid package dependency group")
     elif name == "pyproject.toml":
-        try:
-            import tomllib
-            data = tomllib.loads(text)
-        except (ImportError, ValueError): return result
-        project = data.get("project", {}) if isinstance(data, dict) else {}
-        if isinstance(project, dict):
-            for dep in project.get("dependencies", []):
-                if isinstance(dep, str): result.add(re.split(r"[<>=!~;\[]", dep, 1)[0].strip())
-            optional = project.get("optional-dependencies", {})
-            if isinstance(optional, dict):
-                for values in optional.values():
-                    for dep in values if isinstance(values, list) else []:
-                        if isinstance(dep, str): result.add(re.split(r"[<>=!~;\[]", dep, 1)[0].strip())
+        data = _manifest_toml(text)
+        project = mapping(data.get("project", {}))
+        requirements(project.get("dependencies", []))
+        for values in mapping(project.get("optional-dependencies", {})).values(): requirements(values)
+        requirements(mapping(data.get("build-system", {})).get("requires", []))
+        poetry = mapping(mapping(data.get("tool", {})).get("poetry", {}))
+        for group in ("dependencies", "dev-dependencies"):
+            result.update(key for key in mapping(poetry.get(group, {})) if key.casefold() != "python")
+        for group in mapping(poetry.get("group", {})).values():
+            result.update(key for key in mapping(mapping(group).get("dependencies", {})) if key.casefold() != "python")
     elif name == "Cargo.toml":
-        section = ""
-        for line in text.splitlines():
-            match = re.match(r"\s*\[([^]]+)\]", line)
-            if match: section = match.group(1).split(".", 1)[0]; continue
-            if section in {"dependencies", "dev-dependencies", "build-dependencies"}:
-                match = re.match(r"\s*([A-Za-z0-9_-]+)\s*=", line)
-                if match: result.add(match.group(1))
+        data = _manifest_toml(text)
+        def cargo_groups(table):
+            for key, value in mapping(table).items():
+                if key.endswith("dependencies"):
+                    for dependency, specification in mapping(value).items():
+                        result.add(dependency)
+                        if isinstance(specification, dict) and "package" in specification:
+                            actual = specification["package"]
+                            if not isinstance(actual, str) or not actual: raise ValueError("Invalid Cargo package identity")
+                            result.add(actual)
+        cargo_groups(data)
+        if "workspace" in data: cargo_groups(data["workspace"])
+        for target in mapping(data.get("target", {})).values(): cargo_groups(target)
+    elif name == "CMakeLists.txt":
+        for command, arguments in _manifest_calls(text, r"\b(?:find_package|FetchContent_Declare|ExternalProject_Add|CPMAddPackage)", cmake=True):
+            if command.casefold() == "cpmaddpackage":
+                match = re.search(r"\bNAME\s+[\"']?([A-Za-z0-9_.+-]+)", arguments, re.I)
+            else:
+                match = re.match(r"\s*[\"']?([A-Za-z0-9_.+-]+)(?=[\"'\s)]|$)", arguments)
+            if not match: raise ValueError("Dependency identity is not statically declared")
+            result.add(match.group(1))
     elif name == "go.mod":
-        result.update(re.findall(r"(?m)^\s*(?:require\s+)?([A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+)\s+v", text))
+        in_block = False
+        for raw in text.splitlines():
+            line = raw.split("//", 1)[0].strip()
+            if not line: continue
+            if re.fullmatch(r"require\s*\(", line):
+                if in_block: raise ValueError("Nested Go require group")
+                in_block = True
+                continue
+            if in_block and line == ")": in_block = False; continue
+            value = line if in_block else re.sub(r"^require\s+", "", line) if re.match(r"^require\s+", line) else None
+            if value is not None:
+                fields = value.split()
+                if len(fields) != 2 or not re.fullmatch(r"v\S+", fields[1]): raise ValueError("Invalid Go dependency declaration")
+                result.add(fields[0].strip('"'))
+        if in_block: raise ValueError("Unterminated Go require group")
     elif name.startswith("requirements") and name.endswith(".txt"):
-        for line in text.splitlines():
-            line = line.strip()
-            if line and not line.startswith(("#", "-")):
-                result.add(re.split(r"[<>=!~;\[]", line, 1)[0].strip())
+        requirements(text.splitlines())
     elif name == "pubspec.yaml":
-        in_group = False
+        active, indentation = False, None
         for line in text.splitlines():
-            if re.match(r"^(dependencies|dev_dependencies):\s*$", line): in_group = True; continue
-            if in_group and line and not line[0].isspace(): in_group = False
-            if in_group:
-                match = re.match(r"^\s{2}([A-Za-z0-9_-]+):", line)
-                if match: result.add(match.group(1))
+            if not line.strip() or line.lstrip().startswith("#"): continue
+            if "\t" in line[:len(line)-len(line.lstrip())]: raise ValueError("Invalid dependency indentation")
+            if not line.startswith(" "):
+                match = re.match(r"^(dependencies|dev_dependencies|dependency_overrides):\s*(.*?)\s*$", line)
+                active, indentation = bool(match), None
+                if match and match.group(2).split("#", 1)[0].strip() not in {"", "{}"}:
+                    raise ValueError("Unsupported dependency mapping syntax")
+                continue
+            if active:
+                indent = len(line) - len(line.lstrip())
+                if indentation is None: indentation = indent
+                if indent < indentation: raise ValueError("Invalid dependency indentation")
+                if indent == indentation:
+                    match = re.match(r"\s*([A-Za-z0-9_]+):(?:\s|$)", line)
+                    if not match: raise ValueError("Invalid pubspec dependency declaration")
+                    result.add(match.group(1))
     elif name == "vcpkg.json":
-        try: data = json.loads(text)
-        except ValueError: return result
-        if isinstance(data, dict) and isinstance(data.get("dependencies"), list):
-            result.update(item if isinstance(item, str) else item.get("name") for item in data["dependencies"] if isinstance(item, str) or isinstance(item, dict) and isinstance(item.get("name"), str))
+        data = _manifest_json(text)
+        def vcpkg_group(values):
+            if not isinstance(values, list): raise ValueError("Invalid vcpkg dependency list")
+            for value in values:
+                dependency = value.get("name") if isinstance(value, dict) else value
+                if not isinstance(dependency, str) or not dependency: raise ValueError("Invalid vcpkg dependency identity")
+                result.add(dependency)
+        vcpkg_group(data.get("dependencies", []))
+        for feature in mapping(data.get("features", {})).values(): vcpkg_group(mapping(feature).get("dependencies", []))
     elif name == "Package.swift":
-        result.update(re.findall(r"\.package\s*\(\s*url\s*:\s*\"[^\"]+/(?:[^/]+)\"", text))
+        for _, arguments in _manifest_calls(text, r"\.package"):
+            names = re.findall(r'\bname\s*:\s*"([^"\\]+)"', arguments)
+            urls = re.findall(r'\burl\s*:\s*"([^"\\]+)"', arguments)
+            local_paths = re.findall(r'\bpath\s*:\s*"([^"\\]+)"', arguments)
+            if not names and not urls and not local_paths: raise ValueError("Dependency identity is not statically declared")
+            result.update(names)
+            for value in [*urls, *local_paths]:
+                identity = value.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+                if not identity: raise ValueError("Empty Swift package identity")
+                result.add(identity)
     return {item for item in result if isinstance(item, str) and item}
 
 

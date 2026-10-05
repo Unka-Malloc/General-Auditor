@@ -41,6 +41,22 @@ def commit(root, revision):
     return value
 
 
+def repository_root(directory):
+    """Resolve one repository root so a nested invocation cannot narrow coverage."""
+    bare = git(directory, "rev-parse", "--is-bare-repository").stdout.strip() == b"true"
+    option = "--absolute-git-dir" if bare else "--show-toplevel"
+    return Path(os.fsdecode(git(directory, "rev-parse", option).stdout.rstrip(b"\n")))
+
+
+def unborn_head(root):
+    """A symbolic HEAD whose branch does not yet exist has no baseline commit."""
+    symbolic = git(root, "symbolic-ref", "--quiet", "HEAD", check=False)
+    if symbolic.returncode:
+        return False
+    ref = symbolic.stdout.decode().strip()
+    return git(root, "show-ref", "--verify", "--quiet", ref, check=False).returncode == 1
+
+
 @contextmanager
 def public_repository(repository, jobs):
     repository_name(repository)

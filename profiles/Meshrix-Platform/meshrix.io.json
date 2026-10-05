@@ -39,6 +39,7 @@
     ]
   },
   "repository_policy": {
-    "require_workflow": true
+    "require_workflow": true,
+    "data_profile": "common"
   }
 }

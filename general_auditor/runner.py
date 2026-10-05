@@ -81,7 +81,7 @@ def audit_repository(root, row, observations, *, force, api):
     else:
         try:
             with public_repository(name, jobs) as checkout, BlobAnalysis(checkout, selected_rules(profile.get("additional_rule_groups", [])), profile) as analysis:
-                results = [execute(job, root, checkout=checkout, analysis=analysis, event=job) for job in jobs]
+                results = [execute(job, root, checkout=checkout, analysis=analysis) for job in jobs]
         except (GitError, OSError):
             results = [failed_result(name, job["head"], job["trigger"]) for job in jobs]
     for job, result in zip(jobs, results):
