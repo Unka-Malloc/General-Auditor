@@ -258,3 +258,79 @@ class ContributionPolicyParityTests(unittest.TestCase):
                           [{'path': 'runtime.csv', 'kind': 'blob'}], lambda _: 'id\n',
                           {'branch_refs': [], 'commit_metadata': []})
         self.assertIn('repository.data-file-admission', result['coverage']['blocking'])
+
+
+class SchemaDefinitionFixtureTests(unittest.TestCase):
+    def evaluate_fixture(self, text):
+        profile = default_profile('Example/Source')
+        profile['repository_policy'] = {
+            'data_profile': 'licoup', 'schema_fixtures': ['tests/fixtures/structure.sql']}
+        return evaluate('Example/Source', profile,
+                        [{'path': 'tests/fixtures/structure.sql', 'kind': 'blob'}],
+                        lambda _: text, {'branch_refs': [], 'commit_metadata': []})
+
+    def test_reviewed_definition_fixture_admits_table_index_and_partial_index(self):
+        source = '''-- Synthetic structure only.
+CREATE TABLE retained_items (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL DEFAULT 'fixture',
+  amount INTEGER CHECK (amount >= 0)
+);
+CREATE INDEX item_label ON retained_items (label);
+CREATE UNIQUE INDEX tagged_label ON retained_items (label) WHERE label LIKE 'tag:%';
+'''
+        result = self.evaluate_fixture(source)
+        self.assertFalse(result['coverage']['blocking'])
+        self.assertEqual([{'rule': 'repository.data-file-admission',
+                           'path': 'tests/fixtures/structure.sql', 'count': 1}],
+                         result['coverage']['exempted'])
+
+    def test_quoted_semicolons_comments_and_escaped_quotes_preserve_definitions(self):
+        source = '''/* CREATE TRIGGER ignored; INSERT ignored; */
+CREATE TABLE sample (
+  "column;name" TEXT DEFAULT 'value; -- text /* literal */ it''s (safe)',
+  `other;column` TEXT,
+  [final;column] TEXT,
+  quantity INTEGER CHECK (quantity >= 0)
+); -- trailing source comment
+CREATE INDEX sample_name ON sample ("column;name");
+'''
+        self.assertFalse(self.evaluate_fixture(source)['coverage']['blocking'])
+        bad = source + '/* harmless comment */ INSERT INTO sample VALUES (1, 2);'
+        self.assertIn('repository.data-file-admission',
+                      self.evaluate_fixture(bad)['coverage']['blocking'])
+
+    def test_mutations_triggers_source_queries_and_external_commands_are_denied(self):
+        rejected = [
+            'ALTER TABLE sample ADD COLUMN data TEXT;',
+            'DROP TABLE sample;',
+            'PRAGMA user_version = 7;',
+            'CREATE TRIGGER change_sample AFTER UPDATE ON sample BEGIN UPDATE sample SET id = 1; END;',
+            'CREATE TABLE copied AS SELECT * FROM sample;',
+            'CREATE TABLE copied (id INT) AS WITH source AS (SELECT 1) SELECT * FROM source;',
+            'CREATE VIEW copied AS SELECT * FROM sample;',
+            'CREATE VIRTUAL TABLE sample USING external_module;',
+            "ATTACH DATABASE 'fixture.db' AS other;",
+            "SELECT load_extension('fixture');",
+            'BEGIN; CREATE TABLE sample (id INTEGER); COMMIT;',
+            'CREATE TABLE sample (id INTEGER); UPDATE sample SET id=1;',
+            'CREATE TABLE sample (id INTEGER); DELETE FROM sample;',
+            "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO metadata (key,value) VALUES ('version','1');",
+        ]
+        for source in rejected:
+            with self.subTest(source=source):
+                result = self.evaluate_fixture(source)
+                self.assertIn('repository.data-file-admission', result['coverage']['blocking'])
+                self.assertEqual([], result['coverage']['exempted'])
+
+    def test_empty_truncated_unbalanced_and_unterminated_payloads_are_denied(self):
+        for source in ('', '-- comment only', '/* comment only */',
+                       'CREATE TABLE sample (id INTEGER)',
+                       'CREATE TABLE sample (id INTEGER;',
+                       "CREATE TABLE sample (label TEXT DEFAULT 'unfinished);",
+                       'CREATE TABLE sample (id INTEGER); /* unfinished comment',
+                       'CREATE TABLE sample (id INTEGER));',
+                       'CREATE TABLE sample (id INTEGER);;'):
+            with self.subTest(source=source):
+                self.assertIn('repository.data-file-admission',
+                              self.evaluate_fixture(source)['coverage']['blocking'])

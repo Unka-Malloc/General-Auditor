@@ -544,10 +544,60 @@ def _json_shape_ok(profile_name, path, data):
 
 
 def _schema_only_sql(text):
-    # Quoted values and comments do not define SQL commands. Inspect every
-    # statement, including multiple statements on one line, without execution.
-    tokens = re.sub(r"--[^\n]*|/\*.*?\*/|'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"", " ", text, flags=re.S)
-    return all(not statement.strip() or re.match(r"(?i)\s*(?:CREATE|ALTER|DROP|PRAGMA|BEGIN|COMMIT|END)\b", statement) for statement in tokens.split(";"))
+    """Recognize bounded table/index fixture definitions without executing SQL."""
+    # These bounds belong to the inherited synthetic-fixture grammar, not the
+    # general source scanner. Empty, truncated or oversized fixtures are denied.
+    if not text or "\0" in text or len(text.encode("utf-8")) > 262_144:
+        return False
+    tokens = re.compile(
+        r"(?P<quoted>'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|`(?:``|[^`])*`|\[[^\]]*\])"
+        r"|(?P<comment>--[^\n]*|/\*[\s\S]*?\*/)"
+        r"|(?P<semicolon>;)"
+        r"|(?P<plain>[^'\"`\[\]/;\-]+|/(?!\*)|-(?!-))"
+        r"|(?P<invalid>[\s\S])"
+    )
+    identifier = r"[A-Za-z_][A-Za-z0-9_]*"
+    table = re.compile(rf"CREATE\s+TABLE\s+{identifier}\s*\([\s\S]+\)\s*;", re.I)
+    index = re.compile(
+        rf"CREATE\s+(?:UNIQUE\s+)?INDEX\s+{identifier}\s+ON\s+{identifier}"
+        rf"\s*\([\s\S]+\)\s*(?:WHERE\s+{identifier}\s+LIKE\s+'(?:''|[^'])*'\s*)?;",
+        re.I,
+    )
+    raw_parts, unquoted_parts, count = [], [], 0
+    for token in tokens.finditer(text):
+        kind, value = token.lastgroup, token.group()
+        if kind == "invalid":
+            return False
+        if kind == "comment":
+            value = " "
+        raw_parts.append(value)
+        unquoted_parts.append(" " if kind == "quoted" else value)
+        if kind != "semicolon":
+            continue
+        statement = "".join(raw_parts).strip()
+        unquoted = "".join(unquoted_parts).strip()
+        count += 1
+        if count > 512 or not (table.fullmatch(statement) or index.fullmatch(statement)):
+            return False
+        if re.search(r"\bAS\s+(?:SELECT|WITH)\b", unquoted, re.I):
+            return False
+        # A complete definition has one outer column/expression list; quoted
+        # parentheses and semicolons cannot alter statement boundaries.
+        depth = 0
+        closed = False
+        for char in unquoted:
+            if char == "(":
+                if closed: return False
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth < 0: return False
+                if depth == 0: closed = True
+        if depth or not closed:
+            return False
+        raw_parts.clear()
+        unquoted_parts.clear()
+    return count > 0 and not "".join(raw_parts).strip()
 
 
 def _line_for(text, pattern):
