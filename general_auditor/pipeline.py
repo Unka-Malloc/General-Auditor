@@ -38,6 +38,27 @@ class Actions:
     def dispatch(self, workflow, inputs):
         self.request("/actions/workflows/" + workflow + "/dispatches", method="POST", payload={"ref": "only", "inputs": inputs})
 
+    def worker_completion(self, run_id):
+        """Resolve a notification to the trusted worker's actual scan outcome."""
+        if not isinstance(run_id, str) or not run_id.isascii() or not run_id.isdigit() or int(run_id) <= 0:
+            raise ValueError("Invalid repository worker run identity")
+        run = self.request("/actions/runs/" + run_id)
+        if (run.get("path") != ".github/workflows/audit-repository.yml"
+                or run.get("head_branch") != "only" or run.get("event") != "workflow_dispatch"
+                or run.get("repository", {}).get("full_name") != CENTRAL
+                or run.get("head_repository", {}).get("full_name") != CENTRAL):
+            raise ValueError("Publication notification is not from the trusted repository worker")
+        if run.get("status") != "completed":
+            # The notifier dispatches after scan finishes, but its own job may
+            # still be closing when the independent publisher starts. Read the
+            # finished scan job; do not wait or guess from the run's null result.
+            jobs = self.request("/actions/runs/" + run_id + "/attempts/" + str(run["run_attempt"]) + "/jobs?per_page=100")["jobs"]
+            scan = next((job for job in jobs if job.get("name") == "scan"), None)
+            if scan is None or scan.get("status") != "completed":
+                return {}
+            run = {**run, "conclusion": scan["conclusion"], "updated_at": scan["completed_at"]}
+        return run
+
     def artifacts(self, name=None):
         from urllib.parse import urlencode
         page = 1
@@ -149,7 +170,7 @@ def audit(root, repository, *, force=False, api=None, actions=None):
     latest = actions.latest(result_name(repository))
     if latest:
         merge_result(root, actions.read(latest, ("result.json",))["result.json"], {repository})
-    result = run(root, repository=repository, watch=not force, api=api)
+    result = run(root, repository=repository, watch=not force, api=api, render_html=False)
     state = read_json(root / "reports/state.json", None)
     ledger = read_json(root / "reports/data.json", None)
     packet = {"repository": repository, "observed_at": state_at(state, repository),
@@ -172,7 +193,8 @@ def assemble(root, *, api=None, actions=None, event=None):
     consumed = state.get("consumed_artifacts", {})
     latest = {}
     incoming = []
-    run_event = (event or {}).get("workflow_run", {})
+    source_run_id = (event or {}).get("inputs", {}).get("source_run_id")
+    run_event = actions.worker_completion(source_run_id) if source_run_id else {}
     consumed_runs = state.get("consumed_workflow_runs", {})
     # One publisher coalesces a burst of independently completed repositories.
     # Queued events already represented in its checkpoint need no archive walk.

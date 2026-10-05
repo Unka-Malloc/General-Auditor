@@ -92,7 +92,7 @@ exclusions do not establish that private work was reviewed or deleted.
 | Eight common privacy-context topics and profile obligations | [review.py](../general_auditor/review.py) | `test_request_covers_lico_topics_detector_tasks_and_profile_obligations` in [test_review.py](../tests/test_review.py) |
 | One judgment per finding/task, extra contextual findings and limitations | Scan-bound local request/receipt/report | `test_all_findings_and_all_tasks_must_be_reviewed_exactly_once`, `test_receipt_must_match_exact_scan_scope_and_finding_identity`, `test_incomplete_scan_or_concrete_limitations_never_look_complete` |
 | Private local reasoning versus public automated status | Local-only reviewed envelope; central scans remain unreviewed | `test_complete_review_is_local_only_and_does_not_change_ci_verdict`, `test_additions_are_redacted_repository_relative_and_location_bound` |
-| Independent repository completion, recovery and rolling reporting | [pipeline.py](../general_auditor/pipeline.py), [runner.py](../general_auditor/runner.py), [report.py](../general_auditor/report.py) | `test_repository_worker_scans_real_git_objects_and_persists_its_result` crosses the actual worker/scanner boundary; `test_failed_policy_artifact_round_trip_restores_worker_and_publisher` verifies failure evidence through real ZIP restoration; completion, ordering, replay, missed-event and visibility cases in [test_pipeline.py](../tests/test_pipeline.py); retention case in [test_auditor.py](../tests/test_auditor.py) |
+| Independent repository completion, recovery and rolling reporting | [pipeline.py](../general_auditor/pipeline.py), [runner.py](../general_auditor/runner.py), [report.py](../general_auditor/report.py) | `test_repository_worker_scans_real_git_objects_and_persists_its_result` crosses the actual worker/scanner boundary; `test_failed_policy_artifact_round_trip_restores_worker_and_publisher` verifies failure evidence through real ZIP restoration; actual notifier dispatch, trusted run metadata, completion races, ordering, replay, missed-event and visibility cases in [test_pipeline.py](../tests/test_pipeline.py); retention case in [test_auditor.py](../tests/test_auditor.py); lossless embedded-data reconstruction, native gzip decoding, safe text rendering and bounded detail pages in [test_report_rendering.py](../tests/test_report_rendering.py) |
 
 Local receipts record submitted judgments. They cannot attest Agent identity,
 prove a conversation occurred, certify safety or automatically update exceptions.
@@ -110,9 +110,12 @@ that every contract variation has been independently verified. Hosted workflow
 execution, artifact persistence and the Pages HTTP response are separate external
 checks. Queued Actions, a pending PR and a report link are not deployment evidence.
 
-Both former auditor repositories remain public until the authorized retirement
-operation is completed. Their privacy/archive settings must be reported from
-actual GitHub state, and existing live callers must be accounted for before
-removing their public source. Preserve independent local assets and unpublished
-work during cleanup. The [grouped inventory](repositories.md) distinguishes the
-30 continuing upstreams from the two pending retirements.
+Both former auditor repositories are now private and archived. Their dedicated
+active profiles have been removed while shared checks and source/license
+provenance remain. Old local checkouts and skill routing were cleared only after
+independent assets and unpublished work were preserved privately. No private
+backup paths or contents are published here.
+
+The [grouped inventory](repositories.md) lists 30 current public upstreams and
+the two retired archives. The 38 consumer migration draft PRs remain unmerged;
+retirement and consumer default-branch adoption are distinct operational states.

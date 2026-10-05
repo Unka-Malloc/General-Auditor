@@ -47,7 +47,19 @@ or private source content.
 
 ## Source repository retirement
 
-The Lico-Auditor and styio-audit repositories are still public while migration
-coverage and live dependency safety are being established. Making them private
-and archiving them is a separate administrative step; this implementation or a
-pending consumer pull request does not by itself mean that retirement occurred.
+Both Lico-Auditor and styio-audit are private and archived, as verified after
+retirement. Their dedicated active profiles have been removed; valid shared
+checks, consumer-specific policy and source/license provenance remain maintained
+in General-Auditor. Historical source links may require access to the archives.
+
+The old local checkouts, linked worktrees and dedicated skill routing were
+removed after preserving independent assets and unpublished work privately.
+Private backup locations and contents are not part of this public record.
+
+Consumer adoption is a separate state: 38 draft PRs across maintained upstream
+branch targets remain open and unmerged. Archival does not mean that every
+consumer default branch has switched its workflow.
+Active consumer branches may still contain references to the retired auditors
+until the migration PRs and required promotions land. Public unauthenticated
+fetches of those now-private repositories can fail; this record does not claim
+that legacy CI remains operational after archival.

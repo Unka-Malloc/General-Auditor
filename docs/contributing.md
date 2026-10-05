@@ -41,8 +41,10 @@ audited repositories remain advisory.
 
 Audit results are repository-owned Actions artifacts and one Pages HTML report.
 They are not source commits. Scanner and publisher tokens have read-only source
-access; only the dispatcher can start sibling workflows. Pages publication uses
-its own deployment permissions. Source changes are always delivered through PRs.
+access. The dispatcher starts repository workers, and a separate notification
+job requests publication after each scan. The notification job has only Actions
+write permission and executes no target source. Pages publication uses its own
+deployment permissions. Source changes are always delivered through PRs.
 
 ## Consolidated sources
 

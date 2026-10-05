@@ -1,10 +1,10 @@
 # Repository inventory
 
-This migration covers 30 continuing public upstreams and two still-public auditors pending private archival. Each continuing upstream requires General-Auditor CI. Prepared changes or PRs are not evidence that a default-branch workflow has migrated. Categories are owned by the central profiles. Website, documentation, benchmark and organization-profile categories use the maintainer-owned publishing policy. Other categories retain their existing contribution settings.
+The active inventory contains 30 public upstreams. Lico-Auditor and styio-audit have been made private and archived. Each continuing upstream requires General-Auditor CI. The consumer migration has 38 open draft PRs across maintained branch targets; none of those PRs has merged, so default-branch workflow migration is not claimed. Categories are owned by the central profiles. Website, documentation, benchmark and organization-profile categories use the maintainer-owned publishing policy. Other categories retain their existing contribution settings.
 
 [Access policy](common-policy.md#maintainer-owned-publishing) · [Administration tool](../tools/configure_access.py)
 
-## SymPolicy (17 continuing; 1 pending retirement)
+## SymPolicy (17 public repositories)
 
 | Repository | Category | Contribution policy |
 | --- | --- | --- |
@@ -22,7 +22,6 @@ This migration covers 30 continuing public upstreams and two still-public audito
 | [styio-ext-vsc](https://github.com/SymPolicy/styio-ext-vsc) | software | Existing repository policy |
 | [Styio-Preview](https://github.com/SymPolicy/Styio-Preview) | software | Existing repository policy |
 | [Vityo](https://github.com/SymPolicy/Vityo) | software | Existing repository policy |
-| [styio-audit](https://github.com/SymPolicy/styio-audit) | retiring auditor | Still public; private archival pending coverage and dependency verification |
 | [styio-dev-env](https://github.com/SymPolicy/styio-dev-env) | tooling | Existing repository policy |
 | [styio-examples](https://github.com/SymPolicy/styio-examples) | website | Collaborator PRs; maintainer-only branch changes |
 | [styio.io](https://github.com/SymPolicy/styio.io) | website | Collaborator PRs; maintainer-only branch changes |
@@ -36,7 +35,7 @@ This migration covers 30 continuing public upstreams and two still-public audito
 | [Pactium](https://github.com/Meshrix-Platform/Pactium) | software | Existing repository policy |
 | [meshrix.io](https://github.com/Meshrix-Platform/meshrix.io) | website | Collaborator PRs; maintainer-only branch changes |
 
-## LicoLand (9 continuing; 1 pending retirement)
+## LicoLand (9 public repositories)
 
 | Repository | Category | Contribution policy |
 | --- | --- | --- |
@@ -46,10 +45,20 @@ This migration covers 30 continuing public upstreams and two still-public audito
 | [LicoArc-Rust](https://github.com/LicoLand/LicoArc-Rust) | software | Existing repository policy |
 | [LicoUp](https://github.com/LicoLand/LicoUp) | software | Existing repository policy |
 | [LicoUp-Plugins](https://github.com/LicoLand/LicoUp-Plugins) | software | Existing repository policy |
-| [Lico-Auditor](https://github.com/LicoLand/Lico-Auditor) | retiring auditor | Still public; private archival pending coverage and dependency verification |
 | [lico.land](https://github.com/LicoLand/lico.land) | website | Collaborator PRs; maintainer-only branch changes |
 | [licoarc.com](https://github.com/LicoLand/licoarc.com) | website | Collaborator PRs; maintainer-only branch changes |
 | [licoup.com](https://github.com/LicoLand/licoup.com) | website | Collaborator PRs; maintainer-only branch changes |
+
+## Retired auditors
+
+| Organization | Repository | State |
+| --- | --- | --- |
+| SymPolicy | styio-audit | Private and archived; excluded from public discovery |
+| LicoLand | Lico-Auditor | Private and archived; excluded from public discovery |
+
+Their dedicated active profiles have been removed. Shared checks, applicable
+consumer policy, source attribution and license notices remain maintained in
+General-Auditor. Historical source links may require repository access.
 
 ## Auditor owner
 

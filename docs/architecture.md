@@ -53,12 +53,19 @@ These paths are generated workspace files, stored in the `audit-checkpoint` Acti
 - `reports/inventory.json`: current public scope, default branches and archive status.
 
 Each worker uploads `audit-result-<owner>--<repository>` as soon as that repository finishes. The packet contains only that repository's redacted 30-day ledger and observations. The worker restores its latest packet as well as the central checkpoint, so a delayed publisher does not force repeated scanning. A failed scanner saves its failure evidence before failing the workflow.
+Artifact-only workers persist JSON without rendering unused HTML. The publisher renders the shared report; local batch commands continue to generate their local HTML report.
+
+After the scan job finishes, an isolated notification job explicitly dispatches the publisher with the worker run identity. This works for workers started by `GITHUB_TOKEN`, whose completion events do not start another workflow. The publisher reads the actual trusted worker metadata and, if the notification job is still closing, the completed scan job's outcome. The notification carries no supplied scan outcome and never waits for publication. A notification failure leaves the saved result available for reconciliation.
 
 The publisher restores the latest checkpoint and coalesces completed repository packets. It records consumed workflow-run identities so queued notifications for already merged runs can skip repeated archive discovery. Scheduled and manual reconciliation recovers durable packets whose completion notification was missed. It merges run identities and updates observations only from a newer per-repository observation time. Result identity and public scope are checked before ingestion. Artifact restoration admits only executions from this repository's protected `only` branch; PR and fork artifacts are excluded. Archives are read by exact JSON member name and never extracted or executed.
 
 One publication concurrency group serializes the shared state update. Scanners do not wait for that group or for Pages. The complete checkpoint is uploaded before deployment, preserving successful scans if Pages fails. Duplicate completion events skip a deployment when they have no new results, expired records or inventory changes. Scheduled and manual publication refreshes also reconcile missed results. One bad repository is represented as an incomplete scan; it does not stop other repository workflows.
 
 The report includes each finding individually: location, rule, withheld-value category, `unreviewed` judgment and basis, potential impact and handling recommendation. It also lists explicit exclusions, infrastructure failures and repository-specific Agent review requirements. Source snippets are never copied. Suspected sensitive path components are masked; such locations do not become source links.
+
+The report's left sidebar groups projects by organization. The right panel shows the selected project's audit history and only the rules actually hit in its selected run, with counts tied to that run's visible timestamp, scope and commit. Finding occurrences are not confirmed leaks and can recur across retained history. Switching projects or runs replaces the previous detail view; findings and exclusions use 50-row pages. Every retained field remains available in the complete run inspector; pagination does not truncate findings.
+
+The self-contained HTML losslessly interns repeated JSON values within each run and embeds independently compressed gzip/base64 records. A current browser with native `DecompressionStream` support decodes only the selected run, without network requests or external libraries. Unselected histories stay compressed, and a late decode cannot replace a newer selection. The canonical checkpoint ledger stays ordinary JSON. For complete offline inspection, parse the `audit-data` JSON element and pass it to `general_auditor.report.unpack_report`, which reconstructs every retained field and run.
 
 Current visibility is rechecked on every discovery and publication run. An inventory change immediately requests publication without scanning removed repositories. The publisher removes results for repositories no longer public from the current ledger and HTML and rejects records marked private. Local scans default to private and are not uploaded to the central report.
 
@@ -69,10 +76,10 @@ The current HTML and ledger contain only the rolling window. Every publication p
 | Workflow | Trigger | Responsibility |
 | --- | --- | --- |
 | `audit.yml` | Every 15 minutes or explicit dispatch | Discover changed repositories and dispatch independent workers. Manual runs can force a selected repository or all public repositories. |
-| `audit-repository.yml` | Dispatcher or explicit maintainer dispatch | Restore observations, inspect one repository, upload its result, then finish independently. |
-| `publish-report.yml` | Each worker completion, report implementation changes, daily schedule or explicit dispatch | Reconcile durable results, expire records, upload the checkpoint and deploy one HTML document. |
+| `audit-repository.yml` | Dispatcher or explicit maintainer dispatch | Restore observations, inspect one repository, upload its result, then independently request publication. |
+| `publish-report.yml` | Worker notification dispatch, report implementation changes, daily schedule or explicit dispatch | Reconcile durable results, expire records, upload the checkpoint and deploy one HTML document. |
 
-All execute trusted code from `only`. `queue: max` preserves pending runs; only repeated scans of the same repository share a scan queue. Source changes run verification and do not trigger a full inventory audit. The dispatcher has Actions write permission to dispatch workers. Scanners have read-only source and Actions access. The publisher has read-only source/Actions access plus Pages and identity-token permissions. None has source-write permission or a Ruleset bypass. No private cross-repository credential or paid Agent token is supplied.
+All execute trusted code from `only`. `queue: max` preserves pending runs; only repeated scans of the same repository share a scan queue. Source changes run verification and do not trigger a full inventory audit. The dispatcher has Actions write permission to dispatch workers. Scanners have read-only source and Actions access. The separate notification job has only Actions write permission and does not check out or execute target source. The publisher has read-only source/Actions access plus Pages and identity-token permissions. None has source-write permission or a Ruleset bypass. No private cross-repository credential or paid Agent token is supplied.
 
 Privacy and keyword warnings never fail scanning. A declared structural repository-contract violation produces `policy_failure`; unreadable required input or an execution failure produces `incomplete`. Neither status is a privacy judgment. A worker that fails before producing an artifact can produce a workflow-failure report entry; its unacknowledged heads remain eligible for discovery. If discovery or artifact access fails entirely, that workflow fails without claiming a fresh scan. Required source checks and PR protection are separate from audit warnings.
 
@@ -85,5 +92,7 @@ Private repositories can use the local CLI or optional CI action, selecting the 
 ## Platform references
 
 - [GitHub workflow events and schedule limitations](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)
+- [GitHub token event restrictions and explicit dispatch](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)
 - [GitHub workflow concurrency and queued runs](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
 - [GitHub REST repository API](https://docs.github.com/en/rest/repos/repos)
+- [Native browser decompression](https://developer.mozilla.org/en-US/docs/Web/API/DecompressionStream)

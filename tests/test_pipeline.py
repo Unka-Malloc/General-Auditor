@@ -4,7 +4,9 @@ from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 from threading import Event
 import unittest
@@ -146,13 +148,14 @@ class PersistenceTests(unittest.TestCase):
         actions = Mock(restore=lambda root: None)
         actions.artifacts.side_effect = lambda: iter(artifacts)
         actions.read.side_effect = lambda row, names: {"result.json": packets[row["id"]]}
-        event = {"workflow_run": {"id": 1, "conclusion": "success"}}
+        actions.worker_completion.side_effect = lambda run_id: {"id": int(run_id), "conclusion": "success"}
+        event = {"inputs": {"source_run_id": "1"}}
         api = Mock(repositories=lambda: inventory())
         with tempfile.TemporaryDirectory() as directory:
             first = assemble(directory, api=api, actions=actions, event=event)
             self.assertTrue(first["changed"])
             self.assertEqual(first["retained_runs"], 2)
-            event["workflow_run"]["id"] = 2
+            event["inputs"]["source_run_id"] = "2"
             second = assemble(directory, api=api, actions=actions, event=event)
             self.assertFalse(second["changed"])
             self.assertEqual(actions.artifacts.call_count, 1)
@@ -171,14 +174,86 @@ class PersistenceTests(unittest.TestCase):
     def test_duplicate_completion_skips_deployment_but_missing_worker_artifact_is_reported(self):
         actions = Mock(restore=lambda root: None, artifacts=lambda **kwargs: iter([]))
         api = Mock(repositories=lambda: inventory())
-        event = {"workflow_run": {"id": 123, "run_attempt": 1, "display_title": "Audit repository · LicoLand/A", "conclusion": "success", "updated_at": datetime.now(timezone.utc).isoformat()}}
+        worker = {"id": 123, "run_attempt": 1, "display_title": "Audit repository · LicoLand/A", "conclusion": "success", "updated_at": datetime.now(timezone.utc).isoformat()}
+        actions.worker_completion.return_value = worker
+        event = {"inputs": {"source_run_id": "123"}}
         with tempfile.TemporaryDirectory() as directory:
             assemble(directory, api=api, actions=actions)
             self.assertFalse(assemble(directory, api=api, actions=actions, event=event)["changed"])
-            event["workflow_run"]["conclusion"] = "failure"
+            worker["conclusion"] = "failure"
             self.assertTrue(assemble(directory, api=api, actions=actions, event=event)["changed"])
             rows = read_json(Path(directory) / "reports/data.json", None)["runs"]
             self.assertEqual(rows[0]["error"], "repository_workflow_failed")
+
+
+class WorkerNotificationTests(unittest.TestCase):
+    def worker(self, **changes):
+        from general_auditor.pipeline import CENTRAL
+        return {"id": 123, "run_attempt": 2, "path": ".github/workflows/audit-repository.yml",
+                "event": "workflow_dispatch", "head_branch": "only",
+                "repository": {"full_name": CENTRAL}, "head_repository": {"full_name": CENTRAL},
+                "status": "completed", "conclusion": "failure", "updated_at": "2026-10-05T10:00:00Z",
+                "display_title": "Audit repository · LicoLand/A", **changes}
+
+    def test_notification_resolves_actual_worker_metadata_not_supplied_outcomes(self):
+        actions = Actions()
+        with patch.object(actions, "request", return_value=self.worker()) as request:
+            self.assertEqual(actions.worker_completion("123"), self.worker())
+            request.assert_called_once_with("/actions/runs/123")
+
+    def test_notification_rejects_invalid_or_untrusted_source_runs(self):
+        actions = Actions()
+        for identity in ("../other", "-1", "0", "１２３", 123):
+            with self.subTest(identity=identity), patch.object(actions, "request") as request:
+                with self.assertRaises(ValueError): actions.worker_completion(identity)
+                request.assert_not_called()
+        for changes in ({"path": ".github/workflows/verify.yml"}, {"head_branch": "work/untrusted"},
+                        {"event": "pull_request"}, {"repository": {"full_name": "Other/Source"}},
+                        {"head_repository": {"full_name": "Other/Fork"}}):
+            with self.subTest(changes=changes), patch.object(actions, "request", return_value=self.worker(**changes)):
+                with self.assertRaises(ValueError): actions.worker_completion("123")
+
+    def test_publication_can_start_while_notifier_finishes_without_guessing_scan_state(self):
+        actions = Actions()
+        worker = self.worker(status="in_progress", conclusion=None)
+        for outcome in ("success", "failure", "cancelled"):
+            jobs = {"jobs": [{"name": "scan", "status": "completed", "conclusion": outcome,
+                              "completed_at": "2026-10-05T10:01:00Z"},
+                             {"name": "notify", "status": "in_progress", "conclusion": None}]}
+            with self.subTest(outcome=outcome), patch.object(actions, "request", side_effect=[worker, jobs]) as request:
+                result = actions.worker_completion("123")
+                self.assertEqual(result["conclusion"], outcome)
+                self.assertEqual(result["updated_at"], "2026-10-05T10:01:00Z")
+                self.assertEqual(request.call_args.args, ("/actions/runs/123/attempts/2/jobs?per_page=100",))
+        with patch.object(actions, "request", side_effect=[worker, {"jobs": [{"name": "scan", "status": "in_progress"}]}]):
+            self.assertEqual(actions.worker_completion("123"), {})
+
+    def test_actual_workflow_notifier_dispatches_after_scan_with_only_its_own_write_token(self):
+        root = Path(__file__).resolve().parents[1]
+        worker = (root / ".github/workflows/audit-repository.yml").read_text()
+        publisher = (root / ".github/workflows/publish-report.yml").read_text()
+        scanner, notifier = worker.split("  notify:\n", 1)
+        self.assertIn("  actions: read", scanner)
+        self.assertNotIn("actions: write", scanner)
+        self.assertIn("    needs: scan", notifier)
+        self.assertIn("if: always() && github.ref == 'refs/heads/only'", notifier)
+        self.assertIn("    permissions:\n      actions: write", notifier)
+        self.assertNotIn("checkout", notifier)
+        self.assertNotIn("  workflow_run:", publisher)
+        self.assertIn("      source_run_id:", publisher)
+        script = "\n".join(line[10:] for line in notifier.split("        run: |\n", 1)[1].splitlines())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "gh"
+            executable.write_text('#!/bin/sh\ncat > "$NOTIFY_BODY"\nprintf "%s\\n" "$@" > "$NOTIFY_ARGS"\n')
+            executable.chmod(0o755)
+            environment = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"],
+                           "GITHUB_RUN_ID": "123", "GITHUB_REPOSITORY": "Unka-Malloc/General-Auditor",
+                           "NOTIFY_BODY": str(root / "body"), "NOTIFY_ARGS": str(root / "args")}
+            subprocess.run(["bash", "-e", "-c", script], env=environment, check=True, capture_output=True)
+            self.assertEqual(json.loads((root / "body").read_text()), {"ref": "only", "inputs": {"source_run_id": "123"}})
+            self.assertEqual((root / "args").read_text().splitlines(), ["api", "--method", "POST",
+                "repos/Unka-Malloc/General-Auditor/actions/workflows/publish-report.yml/dispatches", "--input", "-"])
 
 
 class ContributionTests(unittest.TestCase):

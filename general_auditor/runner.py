@@ -97,7 +97,7 @@ def audit_repository(root, row, observations, *, force, api):
     return results, updated
 
 
-def run(root, *, repository=None, watch=False, workers=8, api=None, on_repository=None):
+def run(root, *, repository=None, watch=False, workers=8, api=None, on_repository=None, render_html=True):
     root = Path(root)
     api = api or GitHub()
     if not watch and not repository:
@@ -115,7 +115,7 @@ def run(root, *, repository=None, watch=False, workers=8, api=None, on_repositor
     updated_at = {name: value for name, value in state.get("updated_at", {}).items() if name in public}
     selected = [row for row in inventory if repository in {None, "all", row["repository"]}]
     results = []
-    ledger = publish(root / "reports", [], inventory=public)
+    ledger = publish(root / "reports", [], inventory=public, render_html=render_html)
     write_json(root / "reports/inventory.json", {"schema_version": 1, "repositories": inventory})
     with ThreadPoolExecutor(max_workers=workers) as pool:
         pending = {pool.submit(audit_repository, root, row, observations.copy(), force=not watch, api=api): row for row in selected}
@@ -127,7 +127,7 @@ def run(root, *, repository=None, watch=False, workers=8, api=None, on_repositor
             observations.update(updates)
             updated_at[name] = datetime.now(timezone.utc).isoformat()
             # Persist each completed repository while independent workers continue.
-            ledger = publish(root / "reports", completed, inventory=public)
+            ledger = publish(root / "reports", completed, inventory=public, render_html=render_html)
             write_json(root / "reports/state.json", {"schema_version": 1, "observed_at": utc_now(), "observations": observations, "updated_at": updated_at})
             results.extend(completed)
             if on_repository is not None:

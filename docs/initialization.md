@@ -12,7 +12,7 @@ This discovers the configured organizations' public repositories and creates mis
 
 Each trusted central profile declares its repository identity, category, additive detector groups, applicable structural contracts, optional required paths and repository-specific local review tasks. Unknown fields, mismatched identities, untrusted policy sources and invalid relative paths fail validation. Profiles cannot disable the mandatory common detectors; applicable structural contracts are declared centrally. `required_paths` is empty by default; the existence of `src/`, `docs/`, root instructions or another particular path is never a universal prerequisite.
 
-Maintain repository-specific requirements in General-Auditor through reviewed changes. A target repository cannot replace the centrally selected profile or weaken common policy. The Lico-Auditor and styio-audit repositories remain public while migration and dependency checks are in progress; remote privacy/archive changes are separate administrative steps and are not implied by this documentation.
+Maintain repository-specific requirements in General-Auditor through reviewed changes. A target repository cannot replace the centrally selected profile or weaken common policy. Lico-Auditor and styio-audit are now private archives and are excluded from public discovery. Their dedicated profiles are removed; applicable shared and consumer policy remains in General-Auditor. Consumer migration PRs remain unmerged.
 
 ## Local initialization
 

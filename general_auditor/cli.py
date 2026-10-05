@@ -57,7 +57,7 @@ def parser():
         command.add_argument("--force", action="store_true")
     assemble = commands.add_parser("assemble", help="Merge completed results and refresh the single report")
     assemble.add_argument("--root", default=".")
-    assemble.add_argument("--event", help="GitHub workflow completion event")
+    assemble.add_argument("--event", help="GitHub publication dispatch event")
     return root
 
 
