@@ -68,6 +68,10 @@
         "kind": "config-object"
       },
       {
+        "path": "docs/functionality/ui-interactions.json",
+        "kind": "config-object"
+      },
+      {
         "path": "schemas/subagent_mcp/subagent_mcp.schema.json",
         "kind": "config-object"
       },

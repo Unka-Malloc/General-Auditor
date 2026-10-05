@@ -145,11 +145,12 @@ class ScopeTests(unittest.TestCase):
         result = self.audit(scope='history', profile=profile)
         self.assertEqual(len(result['findings']), 1)
 
-    def test_historical_public_fixture_admissions_remain_effective(self):
+    def test_trusted_fixture_admissions_remain_effective_across_scope_states(self):
         policy_root = Path(__file__).resolve().parents[1]
         profile, _ = load_profile(policy_root, 'LicoLand/LicoUp')
         paths = ['tests/integration/v71_usage_sources/fixtures/otlp-' + case + '.json'
                  for case in ('cumulative', 'regressed', 'restarted')]
+        paths.append('docs/functionality/ui-interactions.json')
         # Exercise only the selected production data contract, avoiding unrelated
         # LicoUp tree requirements in this intentionally small Git repository.
         profile['required_paths'] = []
@@ -158,6 +159,8 @@ class ScopeTests(unittest.TestCase):
         base = self.commit()
         for path in paths:
             self.save(path, '{"points": []}')
+        worktree = scan(self.repo, 'LicoLand/LicoUp', profile=profile, scope='worktree')
+        self.assertFalse(any(row['file'] in paths for row in worktree['findings']))
         self.commit()
         for path in paths:
             (self.repo / path).unlink()
