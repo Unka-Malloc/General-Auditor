@@ -20,4 +20,4 @@ directory. This file is an editable initialization proposal; it cannot disable
 the baseline used by central CI. A local hook is optional and is not a security
 boundary.
 
-Read the mandatory [common policy](https://github.com/Unka-Malloc/General-Auditor/blob/main/docs/common-policy.md) and the matching [central repository profile](https://github.com/Unka-Malloc/General-Auditor/tree/main/profiles) before contextual review.
+Read the mandatory [common policy](https://github.com/Unka-Malloc/General-Auditor/blob/only/docs/common-policy.md) and the matching [central repository profile](https://github.com/Unka-Malloc/General-Auditor/tree/only/profiles) before contextual review.

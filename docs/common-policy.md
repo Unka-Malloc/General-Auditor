@@ -22,9 +22,11 @@ An active `Maintainer-owned publishing` branch Ruleset covers every branch and r
 
 The repository category in each central profile selects this policy. Protocol definitions and software implementations retain their existing contribution policy unless explicitly classified otherwise. Use `tools/configure_access.py` for administrator-side verification and explicit configuration. CI only observes settings and reports drift; it never grants access or weakens a Ruleset. GitHub omits bypass identities from read-only API responses, so central CI marks that portion unverified rather than inventing a pass or a violation.
 
+General-Auditor itself uses the stricter [maintainer contribution contract](contributing.md): one permanent `only` branch, temporary upstream `work/*` PRs, required checks and no direct source pushes. Reports are published through Actions artifacts and Pages without modifying source branches.
+
 ## Workflow and documentation identity
 
-First-party workflows, action entry points, files and documentation use stable functional names. Do not introduce version-named workflow copies or use Auditor version tags as workflow identities. General-Auditor's maintained entry point is `main`; callers can pin a reviewed commit when their update policy requires it. External action dependencies remain pinned to immutable commits. Package metadata and published protocol identities do not create permission for version-named development boundaries.
+First-party workflows, action entry points, files and documentation use stable functional names. Do not introduce version-named workflow copies or use Auditor version tags as workflow identities. General-Auditor's maintained entry point is `only`; callers can pin a reviewed commit when their update policy requires it. External action dependencies remain pinned to immutable commits. Package metadata and published protocol identities do not create permission for version-named development boundaries.
 
 The default root `README.md` is written in English. Chinese documentation belongs in a separate linked document. Both language entries describe the current maintained implementation.
 

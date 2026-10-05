@@ -1,5 +1,6 @@
 # Documentation
 
+- [Maintaining General-Auditor](contributing.md): designated maintainers, temporary branches and required PR checks.
 - [Common policy](common-policy.md): mandatory contextual review requirements.
 - [Architecture and coverage](architecture.md): scheduling, trust boundaries, persistence and limitations.
 - [Initialization](initialization.md): path-independent configuration, repository policy and optional CI integration.

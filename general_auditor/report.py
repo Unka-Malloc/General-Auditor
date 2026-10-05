@@ -79,8 +79,11 @@ def render(ledger, inventory=(), *, local=False):
     latest = runs[0]["finished_at"] if runs else "Not yet audited"
     e = escape
     sections = []
+    histories = {repository: [] for repository in repositories}
+    for row in runs:
+        histories[row["repository"]].append(row)
     for repository in repositories:
-        history = [row for row in runs if row["repository"] == repository]
+        history = histories[repository]
         body = []
         for index, run in enumerate(history):
             rows = []

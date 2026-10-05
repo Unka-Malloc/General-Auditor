@@ -42,18 +42,18 @@ def commit(root, revision):
 
 
 @contextmanager
-def public_clone(repository, head, base=None):
+def public_repository(repository, jobs):
     repository_name(repository)
-    if not SHA.fullmatch(head) or (base and not SHA.fullmatch(base)):
+    revisions = sorted({revision for job in jobs for revision in (job["head"], job["base"]) if revision})
+    if not revisions or any(not SHA.fullmatch(revision) for revision in revisions):
         raise GitError("Expected immutable commit identities")
     with tempfile.TemporaryDirectory(prefix="general-auditor-") as directory:
         git(directory, "init", "--bare", "--quiet")
         git(directory, "remote", "add", "origin", "https://github.com/" + repository + ".git")
-        if base:
-            # Complete ancestry is necessary for transient findings in a commit range.
-            git(directory, "fetch", "--quiet", "--no-tags", "origin", head, base)
-        else:
-            git(directory, "fetch", "--quiet", "--no-tags", "--depth=1", "origin", head)
+        # One object store and one negotiation for all selected refs in this repository.
+        # Ranges require complete ancestry; pure snapshots need only their trees.
+        depth = [] if any(job["base"] for job in jobs) else ["--depth=1"]
+        git(directory, "fetch", "--quiet", "--no-tags", *depth, "origin", *revisions)
         yield Path(directory)
 
 

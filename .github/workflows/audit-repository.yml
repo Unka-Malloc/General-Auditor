@@ -1,0 +1,62 @@
+name: Audit repository
+run-name: Audit repository · ${{ inputs.repository }}
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: 'Exact public owner/repository'
+        required: true
+        type: string
+      force:
+        description: 'Rescan unchanged heads'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  actions: read
+# Only repeated work for the same repository queues; other repositories run independently.
+concurrency:
+  group: repository-audit-${{ inputs.repository }}
+  queue: max
+jobs:
+  scan:
+    if: github.ref == 'refs/heads/only'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: only
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Scan this repository and persist its result
+        id: scan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUDIT_REPOSITORY: ${{ inputs.repository }}
+          AUDIT_FORCE: ${{ inputs.force }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from general_auditor.pipeline import result_name
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write('artifact_name=' + result_name(os.environ['AUDIT_REPOSITORY']) + '\n')
+          PY
+          args=(audit-repository --repository "$AUDIT_REPOSITORY")
+          if [ "$AUDIT_FORCE" = true ]; then args+=(--force); fi
+          exit_code=0
+          python3 -m general_auditor "${args[@]}" || exit_code=$?
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+      - name: Persist this repository without waiting for other scans
+        if: always() && hashFiles('out/result/result.json') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.scan.outputs.artifact_name }}
+          path: out/result/result.json
+          retention-days: 30
+          if-no-files-found: error
+      - name: Surface incomplete scans after saving their evidence
+        env:
+          SCAN_EXIT: ${{ steps.scan.outputs.exit_code }}
+        run: test "$SCAN_EXIT" = 0

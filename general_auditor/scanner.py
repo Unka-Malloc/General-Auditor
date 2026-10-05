@@ -1,6 +1,8 @@
 """Deterministic advisory scanning. Source values never enter result records."""
 
 from datetime import datetime, timezone
+from contextlib import nullcontext
+from functools import lru_cache
 from pathlib import PurePosixPath
 import re
 from uuid import uuid4
@@ -44,7 +46,44 @@ def finding(path, line, revision, rule, *, basis=None):
     }
 
 
-def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=None, visibility="private", trigger="local"):
+class BlobAnalysis:
+    """Bounded per-repository LRU of redacted analysis, shared across branch scans."""
+
+    def __init__(self, root, rules):
+        self.root, self.rules = root, rules
+        self.inspect = lru_cache(maxsize=4096)(self._inspect)
+
+    def __enter__(self):
+        self.blobs = BlobReader(self.root)
+        return self
+
+    def __exit__(self, *_):
+        self.inspect.cache_clear()
+        self.blobs.close()
+
+    def _inspect(self, path, mode, kind, oid, size):
+        if kind != "blob":
+            return "external submodule content", 0, ()
+        if mode == "120000":
+            return "symbolic link (not followed)", 0, ()
+        if size > MAX_TEXT_BYTES:
+            return "file exceeds 2 MiB text limit", 0, ()
+        data = self.blobs.read(oid)
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            text = None
+        if text is None or "\0" in text:
+            return "binary or non-UTF-8 content", 0, ()
+        if text.startswith("version https://git-lfs.github.com/spec/v1\n"):
+            return "Git LFS object (pointer only)", 0, ()
+        applicable = [(rule, regex) for rule, regex in self.rules if applies(rule, path)]
+        hits = tuple((line, rule) for line, content in enumerate(text.splitlines(), 1)
+                     for rule, regex in applicable if next(matches(rule, regex, content), None) is not None)
+        return None, size, hits
+
+
+def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=None, visibility="private", trigger="local", analysis=None):
     repository_name(repository)
     if visibility not in {"public", "private"}:
         raise ValueError("Invalid visibility")
@@ -83,7 +122,7 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
     seen = set()
     # A range scans changed file versions in every outgoing commit, including content
     # subsequently deleted. A first-parent comparison includes merge resolutions.
-    with BlobReader(root) as blobs:
+    with (nullcontext(analysis) if analysis is not None else BlobAnalysis(root, rules)) as analyzer:
         for revision in revisions:
             changed = None
             if base:
@@ -95,35 +134,13 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
                 if (changed is not None and path not in changed) or (path, oid) in seen:
                     continue
                 seen.add((path, oid))
-                reason = None
-                if kind != "blob":
-                    reason = "external submodule content"
-                elif mode == "120000":
-                    reason = "symbolic link (not followed)"
-                elif size > MAX_TEXT_BYTES:
-                    reason = "file exceeds 2 MiB text limit"
-                if reason:
-                    result["coverage"]["excluded"].append({"file": safe_path(path), "commit": revision, "reason": reason})
-                    continue
-                data = blobs.read(oid)
-                try:
-                    text = data.decode("utf-8")
-                except UnicodeDecodeError:
-                    text = None
-                if text is None or "\0" in text:
-                    reason = "binary or non-UTF-8 content"
-                elif text.startswith("version https://git-lfs.github.com/spec/v1\n"):
-                    reason = "Git LFS object (pointer only)"
+                reason, inspected_bytes, hits = analyzer.inspect(path, mode, kind, oid, size)
                 if reason:
                     result["coverage"]["excluded"].append({"file": safe_path(path), "commit": revision, "reason": reason})
                     continue
                 result["coverage"]["text_versions"] += 1
-                result["coverage"]["bytes"] += size
-                applicable = [(rule, regex) for rule, regex in rules if applies(rule, path)]
-                for line, content in enumerate(text.splitlines(), 1):
-                    for rule, regex in applicable:
-                        if next(matches(rule, regex, content), None) is not None:
-                            result["findings"].append(finding(path, line, revision, rule))
+                result["coverage"]["bytes"] += inspected_bytes
+                result["findings"].extend(finding(path, line, revision, rule) for line, rule in hits)
     paths = {row[0] for row in tree(root, head)}
     for required in profile.get("required_paths", []):
         if not any(path == required or path.startswith(required.rstrip("/") + "/") for path in paths):

@@ -4,7 +4,7 @@
 
 General-Auditor provides mandatory common policy, repository-specific review requirements, and a single rolling audit report for every public repository in **SymPolicy**, **Meshrix-Platform**, and **LicoLand**.
 
-[Audit report](https://unka-malloc.github.io/General-Auditor/) · [Report source](reports/index.html) · [Audit workflow runs](https://github.com/Unka-Malloc/General-Auditor/actions/workflows/audit.yml)
+[Audit report](https://unka-malloc.github.io/General-Auditor/) · [Report artifacts](https://github.com/Unka-Malloc/General-Auditor/actions/workflows/publish-report.yml) · [Audit workflow runs](https://github.com/Unka-Malloc/General-Auditor/actions/workflows/audit.yml)
 
 Contextual privacy judgments belong to the contributor's local Agent before publication. CI collects deterministic advisory signals without invoking a paid Agent, validating credentials, or executing audited repositories. Pattern matches produce warnings and do not fail CI. Configuration and infrastructure failures remain explicit.
 
@@ -22,13 +22,17 @@ The [grouped inventory](docs/repositories.md) names every repository and its cat
 
 - [Common policy](docs/common-policy.md) always applies. Each [repository profile](profiles/) adds its own review requirements; missing profiles use the same initialization defaults.
 - No fixed source, documentation, instruction-file or branch layout is required. Required paths are explicit repository-specific declarations.
-- Central CI discovers public branch and open-PR changes every 15 minutes and scans only changed repositories. A manual run selects one repository or explicitly selects `all`.
+- Central CI discovers public branch and open-PR changes concurrently every 15 minutes. Each changed repository gets an independent workflow; slow repositories do not delay other scans or their saved results. A manual run selects one repository or explicitly selects `all`.
 - Initial branch scans inspect current snapshots. Subsequent scans inspect changed file versions in every outgoing commit, including content removed before the final head.
-- `reports/index.html` is the single fixed HTML document. The JSON ledger retains the latest 30 days of runs and expires older entries even when no source changes occur.
+- Each repository saves its result artifact on completion. A separate publisher merges durable results into one Pages HTML document and an Actions checkpoint, retaining the latest 30 days. A daily refresh expires old entries even without source changes. Reports do not create source commits.
 - Report rows contain locations, rules, redacted categories, judgments and their basis, impact and recommendations. No source values or backend runtime records are copied into the report.
 - Publishing-category scans observe GitHub PR access and branch restrictions. Bypass identities hidden by GitHub's read-only API are marked unverified; administrator-side verification checks the complete configuration.
 
 GitHub schedules and hosted runners are subject to platform availability. CI does not guarantee pre-publication filtering or execution of local hooks. Binary files, large text files and other excluded content are listed explicitly. See [coverage and operational boundaries](docs/architecture.md).
+
+## Maintaining the Auditor
+
+`only` is the sole permanent branch. Designated maintainers use temporary `work/*` branches and PRs; direct pushes to `only` are prohibited, including administrator and bot pushes. Required checks, resolved discussions and linear squash history are enforced. External PR creation is disabled. See [contribution governance](docs/contributing.md).
 
 ## Local usage
 
@@ -43,7 +47,7 @@ python3 -m general_auditor scan --repository ExampleOrg/ExampleRepo --directory 
 
 The scanner reads committed Git content. It does not inspect uncommitted changes. Commit locally, then ask the local Agent to review the common policy, selected profile, findings and original context before the first push. Add `--base <previous-commit>` to inspect a commit range. Local results default to private and are never automatically published.
 
-Initialization adds only missing files and preserves repository layout. Add `--with-workflow` for optional immediate repository-local CI. Its maintained first-party action entry is `Unka-Malloc/General-Auditor@main`; workflows use functional names, not version-named copies or Auditor version tags. The configured public organizations already have central profiles and require no target-repository scaffolding to run common rules. See [initialization](docs/initialization.md).
+Initialization adds only missing files and preserves repository layout. Add `--with-workflow` for optional immediate repository-local CI. Its maintained first-party action entry is `Unka-Malloc/General-Auditor@only`; workflows use functional names, not version-named copies or Auditor version tags. The configured public organizations already have central profiles and require no target-repository scaffolding to run common rules. See [initialization](docs/initialization.md).
 
 ## Central operations
 
@@ -52,13 +56,13 @@ Initialization adds only missing files and preserves repository layout. Add `--w
 gh workflow run audit.yml -R Unka-Malloc/General-Auditor -f repository=LicoLand/LicoArc
 
 # Explicitly audit all configured public repositories.
-gh workflow run audit.yml -R Unka-Malloc/General-Auditor -f repository=all
+gh workflow run audit.yml -R Unka-Malloc/General-Auditor -f repository=all -f force=true
 
 # Inspect declared publishing access policy using an administrator's gh session.
 python3 tools/configure_access.py
 ```
 
-The administration tool changes settings only when explicitly invoked with `--apply`. Central CI has no cross-repository write credential and never mutates repository access. [Access-policy administration](docs/access-policy.md)
+Inspect this Auditor’s own governance with `python3 tools/configure_auditor.py`. Both administration tools change settings only when explicitly invoked with `--apply`. Central CI has no cross-repository write credential and never mutates repository access. [Access-policy administration](docs/access-policy.md)
 
 ## Verification
 

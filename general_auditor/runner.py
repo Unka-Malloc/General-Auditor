@@ -2,12 +2,13 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from datetime import datetime, timezone
 
 from .config import MAINTAINER_CATEGORIES, OWNERS, initialize, load_profile, repository_name
 from .github import APIError, GitHub
-from .gitdata import GitError, public_clone
+from .gitdata import GitError, public_repository
 from .report import publish, read_json, write_json
-from .scanner import failed_result, scan, utc_now
+from .scanner import BlobAnalysis, failed_result, scan, utc_now
 from .rules import selected_rules
 from .governance import finding as governance_finding
 
@@ -26,7 +27,7 @@ def plan(candidates, observations, *, force=False):
     return list(jobs.values())
 
 
-def execute(job, root):
+def execute(job, root, *, checkout=None, analysis=None):
     try:
         if job["head"] is None and job["trigger"] == "empty_repository":
             profile, source = load_profile(root, job["repository"])
@@ -36,15 +37,59 @@ def execute(job, root):
                           local_review=profile.get("local_review", []),
                           rule_ids=[rule.id for rule, _ in selected_rules(profile.get("additional_rule_groups", []))])
             return result
-        with public_clone(job["repository"], job["head"], job["base"]) as checkout:
-            return scan(checkout, job["repository"], head=job["head"], base=job["base"],
-                        policy_root=root, visibility="public", trigger=job["trigger"])
+        return scan(checkout, job["repository"], head=job["head"], base=job["base"],
+                    policy_root=root, visibility="public", trigger=job["trigger"], analysis=analysis)
     except (GitError, ValueError, OSError):
-        # Keep individual failures visible and let independent repositories finish.
         return failed_result(job["repository"], job["head"], job["trigger"])
 
 
-def run(root, *, repository=None, watch=False, workers=4, api=None):
+def audit_repository(root, row, observations, *, force, api):
+    """Discover, fetch and inspect one repository independently of every other one."""
+    name = row["repository"]
+    previous = {key: head for key, head in observations.items() if key.startswith(name + ":")}
+    try:
+        candidates = api.candidates(name, row["default_branch"])
+    except APIError:
+        return [failed_result(name, None, "discovery", "metadata_unavailable")], previous
+    current = {item["key"] for item in candidates}
+    updated = {key: head for key, head in previous.items() if key in current}
+    jobs = plan(candidates, previous, force=force)
+    if not jobs:
+        return [], updated
+    try:
+        initialize(root, name, profile_only=True)
+        profile, _ = load_profile(root, name)
+    except (ValueError, OSError):
+        return [failed_result(name, None, "configuration", "invalid_repository_profile")], updated
+    issues = []
+    if profile.get("category") in MAINTAINER_CATEGORIES:
+        try:
+            issues = api.access_policy(name)
+        except APIError:
+            issues = [("governance.verification-unavailable", "GitHub access-policy metadata could not be verified.")]
+    results = []
+    if all(job["head"] is None for job in jobs):
+        results = [execute(job, root) for job in jobs]
+    else:
+        try:
+            with public_repository(name, jobs) as checkout, BlobAnalysis(checkout, selected_rules(profile.get("additional_rule_groups", []))) as analysis:
+                results = [execute(job, root, checkout=checkout, analysis=analysis) for job in jobs]
+        except (GitError, OSError):
+            results = [failed_result(name, job["head"], job["trigger"]) for job in jobs]
+    for job, result in zip(jobs, results):
+        for rule, description in issues:
+            item = governance_finding(rule, description, result["head"])
+            if rule in {"governance.verification-unavailable", "governance.bypass-visibility"}:
+                item.update(judgment="unverified", basis=description, impact="The caller cannot verify the full access-policy configuration.")
+            result["findings"].append(item)
+        if result["findings"] and result["status"] == "completed":
+            result["status"] = "completed_with_warnings"
+        if result["status"] != "incomplete":
+            updated.update({key: job["head"] for key in job["keys"]})
+    return results, updated
+
+
+def run(root, *, repository=None, watch=False, workers=8, api=None, on_repository=None):
     root = Path(root)
     api = api or GitHub()
     if not watch and not repository:
@@ -57,58 +102,28 @@ def run(root, *, repository=None, watch=False, workers=4, api=None):
     public = {row["repository"] for row in inventory}
     if repository and repository != "all" and repository not in public:
         raise ValueError("Selected repository is not in the public inventory")
-    state = read_json(root / "reports/state.json", {"schema_version": 1, "observations": {}})
+    state = read_json(root / "reports/state.json", {"schema_version": 1, "observations": {}, "updated_at": {}})
     observations = {key: head for key, head in state["observations"].items() if key.split(":", 1)[0] in public}
+    updated_at = {name: value for name, value in state.get("updated_at", {}).items() if name in public}
+    selected = [row for row in inventory if repository in {None, "all", row["repository"]}]
     results = []
-    candidates = []
-    seen_keys = set()
-    selected = [row for row in inventory if watch or repository == "all" or repository == row["repository"]]
-    for row in selected:
-        try:
-            discovered = api.candidates(row["repository"], row["default_branch"])
-            candidates.extend(discovered)
-            seen_keys.update(item["key"] for item in discovered)
-            # Remove disappeared branches/closed PRs only after successful discovery.
-            prefix = row["repository"] + ":"
-            observations = {key: head for key, head in observations.items() if not key.startswith(prefix) or key in seen_keys}
-        except APIError:
-            results.append(failed_result(row["repository"], None, "discovery", "metadata_unavailable"))
-    jobs = plan(candidates, observations, force=not watch)
-    invalid = set()
-    access_issues = {}
-    for name in sorted({job["repository"] for job in jobs}):
-        try:
-            initialize(root, name, profile_only=True)
-            profile, _ = load_profile(root, name)
-            if profile.get("category") in MAINTAINER_CATEGORIES:
-                try:
-                    access_issues[name] = api.access_policy(name)
-                except APIError:
-                    access_issues[name] = [("governance.verification-unavailable", "GitHub access-policy metadata could not be verified.")]
-        except (ValueError, OSError):
-            invalid.add(name)
-            results.append(failed_result(name, None, "configuration", "invalid_repository_profile"))
-    jobs = [job for job in jobs if job["repository"] not in invalid]
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        pending = {pool.submit(execute, job, root): job for job in jobs}
-        for future in as_completed(pending):
-            job = pending[future]
-            result = future.result()
-            for rule, description in access_issues.get(job["repository"], []):
-                item = governance_finding(rule, description, result["head"])
-                if rule in {"governance.verification-unavailable", "governance.bypass-visibility"}:
-                    item.update(judgment="unverified", basis=description, impact="The caller cannot verify the full access-policy configuration.")
-                result["findings"].append(item)
-            if result["findings"] and result["status"] == "completed":
-                result["status"] = "completed_with_warnings"
-            results.append(result)
-            if result["status"] != "incomplete":
-                for key in job["keys"]:
-                    observations[key] = job["head"]
-            print(job["repository"] + ": " + result["status"] + ", " + str(len(result["findings"])) + " advisory signals", flush=True)
-    # Public inventory is authoritative: a repository that becomes private is removed.
-    ledger = publish(root / "reports", results, inventory=public)
+    ledger = publish(root / "reports", [], inventory=public)
     write_json(root / "reports/inventory.json", {"schema_version": 1, "repositories": inventory})
-    write_json(root / "reports/state.json", {"schema_version": 1, "observed_at": utc_now(), "observations": observations})
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        pending = {pool.submit(audit_repository, root, row, observations.copy(), force=not watch, api=api): row for row in selected}
+        for future in as_completed(pending):
+            row = pending[future]
+            name = row["repository"]
+            completed, updates = future.result()
+            observations = {key: head for key, head in observations.items() if not key.startswith(name + ":")}
+            observations.update(updates)
+            updated_at[name] = datetime.now(timezone.utc).isoformat()
+            # Persist each completed repository while independent workers continue.
+            ledger = publish(root / "reports", completed, inventory=public)
+            write_json(root / "reports/state.json", {"schema_version": 1, "observed_at": utc_now(), "observations": observations, "updated_at": updated_at})
+            results.extend(completed)
+            if on_repository is not None:
+                on_repository(root, name, completed)
+            print(name + ": " + str(len(completed)) + " scans completed", flush=True)
     return {"repositories": len(selected), "scans": len(results), "warnings": sum(len(row["findings"]) for row in results),
             "incomplete": sum(row["status"] == "incomplete" for row in results), "retained_runs": len(ledger["runs"])}

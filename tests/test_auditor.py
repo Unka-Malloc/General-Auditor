@@ -16,7 +16,8 @@ from general_auditor.github import APIError, GitHub
 from general_auditor.gitdata import git
 from general_auditor.report import merge, publish, write_json
 from general_auditor.runner import execute, plan, run
-from general_auditor.scanner import scan
+from general_auditor.scanner import BlobAnalysis, scan
+from general_auditor.rules import selected_rules
 
 
 class GitFixture(unittest.TestCase):
@@ -144,6 +145,19 @@ class GitFixture(unittest.TestCase):
         self.assertNotIn("<script>alert(1)", html)
         self.assertIn("&lt;script&gt;alert(1)", html)
 
+    def test_blob_analysis_is_reused_across_heads_without_losing_commit_locations(self):
+        self.save("settings", 'password="SYNTHETIC_INVALID_PASSWORD"')
+        first = self.commit()
+        self.save("other", "synthetic branch change")
+        second = self.commit()
+        with BlobAnalysis(self.repo, selected_rules([])) as analysis:
+            original = self.audit(head=first, analysis=analysis)
+            updated = self.audit(head=second, analysis=analysis)
+            self.assertGreaterEqual(analysis.inspect.cache_info().hits, 1)
+            self.assertEqual(original["findings"][0]["commit"], first)
+            self.assertEqual(updated["findings"][0]["commit"], second)
+            self.assertEqual(original["findings"][0]["evidence"], updated["findings"][0]["evidence"])
+
 
 class PolicyAndReportTests(unittest.TestCase):
     def test_output_write_replaces_symlink_without_following_it(self):
@@ -225,7 +239,7 @@ class DiscoveryTests(unittest.TestCase):
         api = GitHub(token="")
         inventory = [{"repository": "LicoLand/" + name, "default_branch": "main", "archived": False, "visibility": "public"} for name in ["A", "B"]]
         candidates = [[{"repository": row["repository"], "key": row["repository"] + ":empty", "head": None, "base": None, "trigger": "empty_repository"}] for row in inventory]
-        with tempfile.TemporaryDirectory() as directory, patch.object(api, "repositories", return_value=inventory), patch.object(api, "candidates", side_effect=candidates), redirect_stdout(io.StringIO()):
+        with tempfile.TemporaryDirectory() as directory, patch.object(api, "repositories", return_value=inventory), patch.object(api, "candidates", side_effect=lambda name, branch: next(items for items in candidates if items[0]["repository"] == name)), redirect_stdout(io.StringIO()):
             broken = Path(directory) / "profiles/LicoLand/B.json"
             broken.parent.mkdir(parents=True)
             broken.write_text("invalid selected profile")
@@ -266,7 +280,7 @@ class DiscoveryTests(unittest.TestCase):
         candidate = {"repository": repository, "key": repository + ":branch:main", "head": "a" * 40, "base": None, "trigger": "branch"}
         from general_auditor.scanner import failed_result
         failure = failed_result(repository, candidate["head"], "branch")
-        with tempfile.TemporaryDirectory() as directory, patch.object(api, "repositories", return_value=[item]), patch.object(api, "candidates", return_value=[candidate]), patch("general_auditor.runner.execute", return_value=failure) as execute, redirect_stdout(io.StringIO()):
+        with tempfile.TemporaryDirectory() as directory, patch.object(api, "repositories", return_value=[item]), patch.object(api, "candidates", return_value=[candidate]), patch("general_auditor.runner.audit_repository", return_value=([failure], {})) as execute, redirect_stdout(io.StringIO()):
             self.assertEqual(run(directory, watch=True, api=api)["incomplete"], 1)
             state = json.loads((Path(directory) / "reports/state.json").read_text())
             self.assertEqual(state["observations"], {})

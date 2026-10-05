@@ -6,12 +6,12 @@ The implementation uses Python 3.11+ standard-library code, Git object reads, th
 
 ```mermaid
 flowchart LR
-  A[Public branch and open PR metadata] --> B[Changed-head selection]
+  A[Concurrent public metadata discovery] --> B[Independent repository workflows]
   B --> C[Common rules + this repository profile]
-  C --> D[Read Git objects without executing target code]
-  D --> E[Redacted advisory records]
-  E --> F[30-day JSON ledger]
-  F --> G[One HTML report + Pages]
+  C --> D[Shared Git objects and bounded analysis cache]
+  D --> E[Immediate repository result artifacts]
+  E --> F[Independent report writer and 30-day checkpoint]
+  F --> G[One HTML report on Pages]
   H[Contributor's local Agent] --> I[Contextual judgment before push]
 ```
 
@@ -19,9 +19,11 @@ flowchart LR
 
 The organization scope is defined once in `general_auditor/config.py`. Discovery includes all currently public repositories, including archived repositories and public forks. Default branches are discovered, never assumed to be `main`. Each current branch and open PR is observed; only a changed or new head is scheduled during automatic runs. A manual run selects exactly one repository or explicitly selects the entire inventory.
 
-Reading another repository's metadata is not an audit. A change to repository A does not schedule an unchanged repository B. Simultaneous independent changes can be processed in the same scheduled job. Candidate deduplication is scoped by repository, head and base. Up to four scans run concurrently using one Git blob-reader process per scan.
+Reading another repository's metadata is not an audit. A change to repository A does not schedule an unchanged repository B. Discovery processes up to eight repositories concurrently and dispatches each ready repository without waiting for slower metadata calls. Each dispatched repository has an independent GitHub workflow and concurrency group; the platform's runner quota limits how many execute simultaneously. The local batch command also processes up to eight repositories concurrently and persists each completed repository immediately.
 
-New repositories receive a central profile from the initialization defaults. Existing profiles are validated and preserved. No target repository is required to have a particular directory, policy file, workflow or branch. Repository-supplied configuration is not silently trusted by central CI.
+Candidate deduplication is scoped by repository, head and base. A repository fetches all selected immutable refs into one bare object store. Its branch scans reuse one blob reader and a standard-library LRU cache of up to 4,096 path/blob analyses. Cache entries contain signal metadata, not source values; each scan retains its own commit locations. The cache is released at repository completion. Report rendering groups runs once by repository rather than repeatedly searching the entire ledger.
+
+New repositories receive a workspace profile from the initialization defaults. Existing central profiles are validated and preserved. Maintainers persist refinements through a PR; workers never push generated profiles into the source branch. No target repository is required to have a particular directory, policy file, workflow or branch. Repository-supplied configuration is not silently trusted by central CI.
 
 Website, documentation, benchmark and organization-profile categories additionally select read-only GitHub access-policy observation. Settings are read once per selected repository and included in its report. Hidden bypass identities are reported as unverified; the separate administrator operation verifies the complete configuration. See [access-policy administration](access-policy.md).
 
@@ -35,24 +37,38 @@ The scanner inspects UTF-8 Git blobs up to 2 MiB. Larger files, binary/non-UTF-8
 
 Public Git snapshots are fetched into isolated temporary bare repositories. No target build, dependency installer, hook, submodule initialization, action, script, template or Agent instruction is executed. Scanner Git processes do not inherit Git configuration or API credentials. Target source values and process stderr are withheld from results and logs.
 
-## Reports and retention
+## Reports, persistence and retention
 
-- `reports/index.html`: the single fixed HTML report, replaced after each completed central run.
-- `reports/data.json`: retained redacted runs, deduplicated by run identity, pruned at the UTC 30-day boundary.
-- `reports/state.json`: last successfully inspected head for each currently observed branch/PR; failures are not acknowledged.
+These paths are generated workspace files, stored in the `audit-checkpoint` Actions artifact rather than committed to source:
+
+- `reports/index.html`: the single HTML report, deployed at the fixed Pages URL.
+- `reports/data.json`: retained redacted runs, deduplicated by run identity and pruned at the UTC 30-day boundary.
+- `reports/state.json`: successful branch/PR observations, per-repository observation times and consumed artifact identities. Failed heads are not acknowledged.
 - `reports/inventory.json`: current public scope, default branches and archive status.
+
+Each worker uploads `audit-result-<owner>--<repository>` as soon as that repository finishes. The packet contains only that repository's redacted 30-day ledger and observations. The worker restores its latest packet as well as the central checkpoint, so a delayed publisher does not force repeated scanning. A failed scanner saves its failure evidence before failing the workflow.
+
+The publisher restores the latest checkpoint and reconciles every newer repository packet, including results whose completion notification was missed. It merges run identities and updates observations only from a newer per-repository observation time. Result identity and public scope are checked before ingestion. Artifact restoration admits only executions from this repository's protected `only` branch; PR and fork artifacts are excluded. Archives are read by exact JSON member name and never extracted or executed.
+
+One publication concurrency group serializes the shared state update. Scanners do not wait for that group or for Pages. The complete checkpoint is uploaded before deployment, preserving successful scans if Pages fails. Duplicate completion events skip a deployment when they have no new results, expired records or inventory changes. Scheduled and manual publication refreshes also reconcile missed results. One bad repository is represented as an incomplete scan; it does not stop other repository workflows.
 
 The report includes each finding individually: location, rule, withheld-value category, `unreviewed` judgment and basis, potential impact and handling recommendation. It also lists explicit exclusions, infrastructure failures and repository-specific Agent review requirements. Source snippets are never copied. Suspected sensitive path components are masked; such locations do not become source links.
 
 Current visibility is rechecked on every central run. Results for repositories no longer public are removed from the current ledger and HTML. The public publisher rejects records marked private. Local scans default to private and are not uploaded to the central report.
 
-The current HTML and ledger contain only the rolling window. **Git history, workflow logs, downloaded copies and external caches are not retroactively erased.** Reports are redacted before first publication. The Pages artifact contains only the HTML document and has one-day retention. Source artifacts and Git object history are not deleted by report pruning.
+The current HTML and ledger contain only the rolling window. Every publication prunes expired runs; a daily publication handles idle periods. Checkpoint and repository-result artifacts expire 30 days after creation, while the Pages upload artifact expires after one day. Prior artifact snapshots, Git history, workflow logs, downloaded copies and external caches are not retroactively rewritten when the current ledger is pruned. Reports are redacted before first publication. If all retained checkpoints and repository packets have expired after extended inactivity, collection starts new snapshot coverage instead of claiming an unavailable historical range.
 
 ## Workflow behavior
 
-`audit.yml` runs manually or on a 15-minute schedule. One concurrency group serializes report writers; queued runs check out the latest `main` so they see published observations. The default pending-run replacement behavior is disabled with `queue: max`. A source change to General-Auditor runs its verification workflow and does not fan out an audit of all target repositories. Policy changes apply at the next target scan; maintainers can explicitly request a full inventory audit when needed.
+| Workflow | Trigger | Responsibility |
+| --- | --- | --- |
+| `audit.yml` | Every 15 minutes or explicit dispatch | Discover changed repositories and dispatch independent workers. Manual runs can force a selected repository or all public repositories. |
+| `audit-repository.yml` | Dispatcher or explicit maintainer dispatch | Restore observations, inspect one repository, upload its result, then finish independently. |
+| `publish-report.yml` | Each worker completion, daily schedule or explicit dispatch | Reconcile durable results, expire records, upload the checkpoint and deploy one HTML document. |
 
-Infrastructure failures are persisted and the HTML is deployed before the workflow reports failure. Pattern warnings never fail the job. If inventory retrieval fails entirely, the workflow fails and does not claim that a fresh scan occurred. Ordinary scans use the workflow's built-in `GITHUB_TOKEN` to read public metadata and write this repository's redacted report. Audit and Pages deployment share one runner allocation. The job has the contents, Pages and identity-token permissions needed to publish this repository; audited code is never executed.
+All execute trusted code from `only`. `queue: max` preserves pending runs; only repeated scans of the same repository share a scan queue. Source changes run verification and do not trigger a full inventory audit. The dispatcher has Actions write permission to dispatch workers. Scanners have read-only source and Actions access. The publisher has read-only source/Actions access plus Pages and identity-token permissions. None has source-write permission or a Ruleset bypass. No private cross-repository credential or paid Agent token is supplied.
+
+Pattern warnings never fail scanning. Infrastructure failures remain explicit. A worker that fails before producing an artifact can produce a workflow-failure report entry; its unacknowledged heads remain eligible for discovery. If discovery or artifact access fails entirely, that workflow fails without claiming a fresh scan. Required source checks and PR protection are separate from audit warnings.
 
 Scheduled Actions can be delayed or dropped under platform load, and public repositories with no activity can have schedules disabled by GitHub. Branches or PRs created and removed entirely between observations may not be seen. Queue capacity, platform execution limits, API availability and repository access also apply. This design does not promise a local hook, pre-publication filtering or delivery of every transient event. Optional repository-local workflows provide immediate advisory feedback but cannot guarantee contributor compliance.
 

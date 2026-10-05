@@ -38,6 +38,14 @@ def parser():
     watch.add_argument("--root", default=".")
     discover = commands.add_parser("discover", help="Initialize missing central profiles for all public repositories")
     discover.add_argument("--root", default=".")
+    for name, description in (("coordinate", "Dispatch changed repositories independently"), ("audit-repository", "Audit one repository and persist its durable result")):
+        command = commands.add_parser(name, help=description)
+        command.add_argument("--root", default=".")
+        command.add_argument("--repository", required=True)
+        command.add_argument("--force", action="store_true")
+    assemble = commands.add_parser("assemble", help="Merge completed results and refresh the single report")
+    assemble.add_argument("--root", default=".")
+    assemble.add_argument("--event", help="GitHub workflow completion event")
     return root
 
 
@@ -59,6 +67,14 @@ def main(argv=None):
             return 0
         elif args.command in {"batch", "watch"}:
             result = run(args.root, repository=getattr(args, "repository", None), watch=args.command == "watch")
+        elif args.command in {"coordinate", "audit-repository", "assemble"}:
+            from .pipeline import coordinate, audit, assemble
+            if args.command == "coordinate":
+                result = coordinate(args.root, args.repository, force=args.force)
+            elif args.command == "audit-repository":
+                result = audit(args.root, args.repository, force=args.force)
+            elif args.command == "assemble":
+                result = assemble(args.root, event=read_json(args.event, {}) if args.event else {})
         else:
             inventory = GitHub().repositories()
             created = []

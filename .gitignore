@@ -9,6 +9,7 @@ build/
 build-*/
 dist/
 out/
+reports/
 coverage/
 .cache/
 *.log
