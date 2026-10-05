@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review package resolution, archive extraction and executable install hooks at trust boundaries.",
     "Check registry authentication, package provenance and dependency usage requirements."
-  ]
+  ],
+  "category": "software"
 }

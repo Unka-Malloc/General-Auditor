@@ -3,12 +3,13 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from .config import OWNERS, initialize, load_profile, repository_name
+from .config import MAINTAINER_CATEGORIES, OWNERS, initialize, load_profile, repository_name
 from .github import APIError, GitHub
 from .gitdata import GitError, public_clone
 from .report import publish, read_json, write_json
 from .scanner import failed_result, scan, utc_now
 from .rules import selected_rules
+from .governance import finding as governance_finding
 
 
 def plan(candidates, observations, *, force=False):
@@ -74,9 +75,16 @@ def run(root, *, repository=None, watch=False, workers=4, api=None):
             results.append(failed_result(row["repository"], None, "discovery", "metadata_unavailable"))
     jobs = plan(candidates, observations, force=not watch)
     invalid = set()
+    access_issues = {}
     for name in sorted({job["repository"] for job in jobs}):
         try:
             initialize(root, name, profile_only=True)
+            profile, _ = load_profile(root, name)
+            if profile.get("category") in MAINTAINER_CATEGORIES:
+                try:
+                    access_issues[name] = api.access_policy(name)
+                except APIError:
+                    access_issues[name] = [("governance.verification-unavailable", "GitHub access-policy metadata could not be verified.")]
         except (ValueError, OSError):
             invalid.add(name)
             results.append(failed_result(name, None, "configuration", "invalid_repository_profile"))
@@ -86,6 +94,13 @@ def run(root, *, repository=None, watch=False, workers=4, api=None):
         for future in as_completed(pending):
             job = pending[future]
             result = future.result()
+            for rule, description in access_issues.get(job["repository"], []):
+                item = governance_finding(rule, description, result["head"])
+                if rule in {"governance.verification-unavailable", "governance.bypass-visibility"}:
+                    item.update(judgment="unverified", basis=description, impact="The caller cannot verify the full access-policy configuration.")
+                result["findings"].append(item)
+            if result["findings"] and result["status"] == "completed":
+                result["status"] = "completed_with_warnings"
             results.append(result)
             if result["status"] != "incomplete":
                 for key in job["keys"]:

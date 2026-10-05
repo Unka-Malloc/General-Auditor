@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review container build inputs, downloaded executables and privilege requirements.",
     "Keep credentials and host-specific configuration outside images, build layers and published examples."
-  ]
+  ],
+  "category": "tooling"
 }

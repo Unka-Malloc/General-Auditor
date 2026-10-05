@@ -23,6 +23,8 @@ Reading another repository's metadata is not an audit. A change to repository A 
 
 New repositories receive a central profile from the initialization defaults. Existing profiles are validated and preserved. No target repository is required to have a particular directory, policy file, workflow or branch. Repository-supplied configuration is not silently trusted by central CI.
 
+Website, documentation, benchmark and organization-profile categories additionally select read-only GitHub access-policy observation. Settings are read once per selected repository and included in its report. Hidden bypass identities are reported as unverified; the separate administrator operation verifies the complete configuration. See [access-policy administration](access-policy.md).
+
 ## Git coverage
 
 An initial branch audit reads that branch's current committed tree. It does not scan all prior history. Subsequent audits read changed file versions in every newly observed reachable commit. A PR starts from its base, resolving a common ancestor if the base advanced. Merge resolutions are included through first-parent diffs; introduced side-branch commits are also traversed. Duplicate path/blob pairs are read once per scan.
@@ -50,7 +52,7 @@ The current HTML and ledger contain only the rolling window. **Git history, work
 
 `audit.yml` runs manually or on a 15-minute schedule. One concurrency group serializes report writers; queued runs check out the latest `main` so they see published observations. The default pending-run replacement behavior is disabled with `queue: max`. A source change to General-Auditor runs its verification workflow and does not fan out an audit of all target repositories. Policy changes apply at the next target scan; maintainers can explicitly request a full inventory audit when needed.
 
-Infrastructure failures are persisted and the HTML is deployed before the workflow reports failure. Pattern warnings never fail the job. If inventory retrieval fails entirely, the workflow fails and does not claim that a fresh scan occurred. Ordinary scans use the workflow's built-in `GITHUB_TOKEN` to read public metadata and write this repository's redacted report. The Pages deployment job has only Pages and identity-token write permissions.
+Infrastructure failures are persisted and the HTML is deployed before the workflow reports failure. Pattern warnings never fail the job. If inventory retrieval fails entirely, the workflow fails and does not claim that a fresh scan occurred. Ordinary scans use the workflow's built-in `GITHUB_TOKEN` to read public metadata and write this repository's redacted report. Audit and Pages deployment share one runner allocation. The job has the contents, Pages and identity-token permissions needed to publish this repository; audited code is never executed.
 
 Scheduled Actions can be delayed or dropped under platform load, and public repositories with no activity can have schedules disabled by GitHub. Branches or PRs created and removed entirely between observations may not be seen. Queue capacity, platform execution limits, API availability and repository access also apply. This design does not promise a local hook, pre-publication filtering or delivery of every transient event. Optional repository-local workflows provide immediate advisory feedback but cannot guarantee contributor compliance.
 

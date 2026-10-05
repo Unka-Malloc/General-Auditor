@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Preserve the relay trust boundary: untrusted transport must not gain plaintext, keys or endpoint authority.",
     "Review federation input handling, resource accounting and operational-data exposure."
-  ]
+  ],
+  "category": "software"
 }

@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review organization descriptions, repository links and public contribution routes.",
     "Check generated site assets and forms for operational data or credential exposure."
-  ]
+  ],
+  "category": "website"
 }

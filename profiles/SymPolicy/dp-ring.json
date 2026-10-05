@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review public API changes and dependency usage against the repository documentation.",
     "Trace user-controlled input to execution, persistence and diagnostic output."
-  ]
+  ],
+  "category": "software"
 }

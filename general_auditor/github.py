@@ -8,6 +8,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from .config import OWNERS, repository_name
 from .gitdata import SHA
+from .governance import RULESET_NAME, violations
 
 
 class APIError(RuntimeError):
@@ -100,3 +101,11 @@ class GitHub:
                 candidates.append({"key": repository + ":pr:" + str(row["number"]), "repository": repository,
                                    "head": head, "base": base, "trigger": "pull_request", "default": False})
         return candidates
+
+    def access_policy(self, repository):
+        repository_name(repository)
+        prefix = "/repos/" + repository
+        metadata = self.get(prefix)
+        matching = [row for row in self.pages(prefix + "/rulesets") if row["name"] == RULESET_NAME]
+        ruleset = self.get(prefix + "/rulesets/" + str(matching[0]["id"])) if len(matching) == 1 else None
+        return violations(metadata, ruleset)

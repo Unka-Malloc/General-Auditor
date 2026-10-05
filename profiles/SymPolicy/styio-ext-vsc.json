@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review workspace trust, process spawning and extension permissions at the editor boundary.",
     "Check packaged extension resources and diagnostics for local workspace or credential disclosure."
-  ]
+  ],
+  "category": "software"
 }

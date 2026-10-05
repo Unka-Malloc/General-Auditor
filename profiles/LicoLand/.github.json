@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review organization-wide contribution routing and public metadata against repository ownership boundaries.",
     "Avoid imposing product-specific policy on independent protocol, tooling or website repositories."
-  ]
+  ],
+  "category": "organization-profile"
 }

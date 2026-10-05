@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review lexer, parser and execution changes for semantic consistency and bounded resource use.",
     "Review compiler input handling and diagnostics without exposing private source or local paths."
-  ]
+  ],
+  "category": "software"
 }

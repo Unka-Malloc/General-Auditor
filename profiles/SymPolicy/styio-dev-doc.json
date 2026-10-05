@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review developer procedures against actual supported commands and repository interfaces.",
     "Separate public development examples from internal service configuration and operational records."
-  ]
+  ],
+  "category": "documentation"
 }

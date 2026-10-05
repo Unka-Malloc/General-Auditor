@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review normative protocol requirements independently of any one implementation or operator.",
     "Review encrypted messaging, identity and federation examples for synthetic keys and consistent threat boundaries."
-  ]
+  ],
+  "category": "protocol"
 }

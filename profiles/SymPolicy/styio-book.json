@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review language examples against the published language behavior and identify speculative features explicitly.",
     "Use synthetic examples; remove machine-specific paths and nonpublic implementation notes."
-  ]
+  ],
+  "category": "documentation"
 }

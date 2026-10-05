@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Keep keyword findings advisory and distinguish collected signals from contextual judgments.",
     "Review rule/module isolation, report redaction and workflow routing; do not fan out an individual repository event."
-  ]
+  ],
+  "category": "tooling"
 }

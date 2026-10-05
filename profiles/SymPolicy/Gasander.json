@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review simulation state transitions and reproducibility of balance-design results.",
     "Use synthetic game and user datasets in published fixtures and examples."
-  ]
+  ],
+  "category": "software"
 }

@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review adapter input validation and error propagation across the integration boundary.",
     "Ensure integration fixtures do not contain captured production payloads or credentials."
-  ]
+  ],
+  "category": "software"
 }

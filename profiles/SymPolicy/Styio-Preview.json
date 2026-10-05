@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review parser, evaluator and diagnostic changes against the documented preview language semantics.",
     "Check preview examples and compiler diagnostics for copied local paths or private source content."
-  ]
+  ],
+  "category": "software"
 }

@@ -1,55 +1,71 @@
 # General-Auditor
 
-General-Auditor 为 **SymPolicy、Meshrix-Platform、LicoLand 的全部公开仓库**提供统一审计规则、各仓库专属规则和一份滚动 HTML 报告。
+[简体中文](docs/README.zh-CN.md) · [Documentation](docs/README.md) · [Repository inventory](docs/repositories.md)
 
-**[查看最近 30 天的审计报告](https://unka-malloc.github.io/General-Auditor/)** · [报告源文件](reports/index.html) · [运行记录](https://github.com/Unka-Malloc/General-Auditor/actions/workflows/audit.yml) · [文档入口](docs/README.md)
+General-Auditor provides mandatory common policy, repository-specific review requirements, and a single rolling audit report for every public repository in **SymPolicy**, **Meshrix-Platform**, and **LicoLand**.
 
-规则以本机 Agent 的上下文判断为主。CI 只收集确定性的审计信号，不调用付费 Agent，不验证凭据，不执行被审计仓库的代码。关键词命中产生 `warning / unreviewed`，不会导致 CI 失败；网络、配置或扫描器故障会明确失败。
+[Audit report](https://unka-malloc.github.io/General-Auditor/) · [Report source](reports/index.html) · [Audit workflow runs](https://github.com/Unka-Malloc/General-Auditor/actions/workflows/audit.yml)
 
-## 已实现
+Contextual privacy judgments belong to the contributor's local Agent before publication. CI collects deterministic advisory signals without invoking a paid Agent, validating credentials, or executing audited repositories. Pattern matches produce warnings and do not fail CI. Configuration and infrastructure failures remain explicit.
 
-- 必须遵守的[通用政策](docs/common-policy.md)，以及每个仓库独立的 [profile](profiles/)；没有 profile 时使用统一初始化模板。
-- 不依赖 `src/`、`docs/`、`AGENTS.md` 或某个固定分支。仓库额外要求的路径必须在其 profile 中单独声明。
-- 中央 CI 每 15 分钟发现公开分支与开放 PR 的变化，只扫描变化的仓库和对应提交区间。手动入口可指定单个仓库，或显式选择 `all`。
-- 首次或手动扫描读取当前分支快照；后续扫描读取区间内每次提交的变更，包含后来删除的内容。相同仓库、相同提交、相同范围合并扫描。
-- `reports/index.html` 是唯一固定 HTML 报告。`reports/data.json` 保存最近 30 天的脱敏结果；每次自动运行都会清理过期条目，包括没有代码变化时。
-- 已为当前发现的 32 个公开仓库初始化专属 Agent 检查要求。以后发现的新公开仓库自动初始化通用 profile。
+## Repository scope
 
-GitHub 定时工作流可能延迟或被平台停用，轮询不是逐事件的实时交付保证。报告中的告警不是泄露结论；无告警也不等于安全。[扫描范围与限制](docs/architecture.md)说明了完整边界。
+| Organization | Public repositories | Maintainer-owned publishing repositories |
+| --- | ---: | ---: |
+| SymPolicy | 18 | 6 |
+| Meshrix-Platform | 4 | 2 |
+| LicoLand | 10 | 4 |
 
-## 本机使用
+The [grouped inventory](docs/repositories.md) names every repository and its category. Websites, standalone documentation, benchmarks and organization presentation repositories accept collaborator PRs only. An additional Ruleset restricts all branch changes to organization administrators and repository maintain/admin roles. Existing review and status-check rules continue to apply.
 
-需要 Python 3.11+ 和 Git。运行时只有 Python 标准库依赖。
+## Implemented behavior
+
+- [Common policy](docs/common-policy.md) always applies. Each [repository profile](profiles/) adds its own review requirements; missing profiles use the same initialization defaults.
+- No fixed source, documentation, instruction-file or branch layout is required. Required paths are explicit repository-specific declarations.
+- Central CI discovers public branch and open-PR changes every 15 minutes and scans only changed repositories. A manual run selects one repository or explicitly selects `all`.
+- Initial branch scans inspect current snapshots. Subsequent scans inspect changed file versions in every outgoing commit, including content removed before the final head.
+- `reports/index.html` is the single fixed HTML document. The JSON ledger retains the latest 30 days of runs and expires older entries even when no source changes occur.
+- Report rows contain locations, rules, redacted categories, judgments and their basis, impact and recommendations. No source values or backend runtime records are copied into the report.
+- Publishing-category scans observe GitHub PR access and branch restrictions. Bypass identities hidden by GitHub's read-only API are marked unverified; administrator-side verification checks the complete configuration.
+
+GitHub schedules and hosted runners are subject to platform availability. CI does not guarantee pre-publication filtering or execution of local hooks. Binary files, large text files and other excluded content are listed explicitly. See [coverage and operational boundaries](docs/architecture.md).
+
+## Local usage
+
+Python 3.11+ and Git are required. The scanner has no third-party runtime dependencies.
 
 ```sh
 git clone https://github.com/Unka-Malloc/General-Auditor.git
 cd General-Auditor
 python3 -m general_auditor init --repository ExampleOrg/ExampleRepo --directory ../ExampleRepo
-python3 -m general_auditor scan --repository ExampleOrg/ExampleRepo --directory ../ExampleRepo --output out/audit.json
+python3 -m general_auditor scan --repository ExampleOrg/ExampleRepo --directory ../ExampleRepo --output out/audit.json --html out/audit.html
 ```
 
-`scan` 读取已提交的 Git 内容，不读取未提交的工作区修改。提交到本地后、首次 push 前，让本机 Agent 按通用政策和仓库 profile 审阅结果。指定 `--base <previous-commit>` 可审查完整提交区间。扫描私有仓库时输出默认标为 `private`，不会进入中央公开报告。
+The scanner reads committed Git content. It does not inspect uncommitted changes. Commit locally, then ask the local Agent to review the common policy, selected profile, findings and original context before the first push. Add `--base <previous-commit>` to inspect a commit range. Local results default to private and are never automatically published.
 
-初始化只新增缺失文件，不覆盖现有文件，不移动源码或文档。需要仓库内即时 CI 时追加 `--with-workflow`；这会添加 `.github/workflows/general-auditor.yml`。三个组织的公开仓库已经通过中央 profile 接入，**无需向这些仓库提交初始化文件就能执行通用规则**。[初始化与 CI 模板](docs/initialization.md)
+Initialization adds only missing files and preserves repository layout. Add `--with-workflow` for optional immediate repository-local CI. Its maintained first-party action entry is `Unka-Malloc/General-Auditor@main`; workflows use functional names, not version-named copies or Auditor version tags. The configured public organizations already have central profiles and require no target-repository scaffolding to run common rules. See [initialization](docs/initialization.md).
 
-## 中央 CI
+## Central operations
 
 ```sh
-# 维护者操作：只扫描指定仓库
+# Audit exactly one repository.
 gh workflow run audit.yml -R Unka-Malloc/General-Auditor -f repository=LicoLand/LicoArc
 
-# 维护者操作：显式批量扫描所有公开仓库
+# Explicitly audit all configured public repositories.
 gh workflow run audit.yml -R Unka-Malloc/General-Auditor -f repository=all
+
+# Inspect declared publishing access policy using an administrator's gh session.
+python3 tools/configure_access.py
 ```
 
-中央工作流仅使用其自带的 `GITHUB_TOKEN`，不需要贡献者的 API 密钥，不接受来自公开 PR 的任意付费 Agent 调用。公开报告只发布脱敏类别、Git 文件位置、规则、判断状态、依据、影响和处理建议。
+The administration tool changes settings only when explicitly invoked with `--apply`. Central CI has no cross-repository write credential and never mutates repository access. [Access-policy administration](docs/access-policy.md)
 
-## 验证
+## Verification
 
 ```sh
 python3 tools/verify.py
 ```
 
-该入口检查源码语法、规则和 profile 契约，并执行使用临时 Git 仓库的确定性集成测试。真实 Agent 审阅由贡献者在本机完成，不由此验证入口启动。
+The verification entry point checks source syntax, rule/profile contracts, and deterministic tests using synthetic Git repositories and mocked GitHub settings. It does not start real Agent conversations.
 
-规则设计参考 [Lico-Auditor](https://github.com/LicoLand/Lico-Auditor) 和 [styio-audit](https://github.com/SymPolicy/styio-audit)，保留二者作为独立项目。[整合范围](docs/policy-sources.md)
+Policy concepts are consolidated from [Lico-Auditor](https://github.com/LicoLand/Lico-Auditor) and [styio-audit](https://github.com/SymPolicy/styio-audit). Both remain independent projects. See [policy sources](docs/policy-sources.md).

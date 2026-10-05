@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review public product and deployment claims against the supported platform behavior.",
     "Check website assets and examples for private endpoints, deployment records or tracking secrets."
-  ]
+  ],
+  "category": "website"
 }

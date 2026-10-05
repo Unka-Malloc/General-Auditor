@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review Agent execution authority, endpoint key custody and user-data access boundaries.",
     "Review conversation persistence, recovery and export for correctness without publishing real conversations or backend data."
-  ]
+  ],
+  "category": "software"
 }

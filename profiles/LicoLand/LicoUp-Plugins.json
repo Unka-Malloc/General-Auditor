@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review plugin capability boundaries, external process invocation and secret custody.",
     "Check installation metadata and adapter examples against published plugin contracts."
-  ]
+  ],
+  "category": "software"
 }

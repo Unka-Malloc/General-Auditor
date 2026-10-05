@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review agent authority, policy enforcement and execution isolation across client/server boundaries.",
     "Review persistence, recovery and event processing for consistency; keep private deployment and runtime data out of published artifacts."
-  ]
+  ],
+  "category": "software"
 }

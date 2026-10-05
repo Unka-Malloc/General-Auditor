@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review implementation behavior against the declared normative LicoArc contract.",
     "Review parsing, key custody, cryptographic API use and interoperability fixtures with synthetic inputs."
-  ]
+  ],
+  "category": "software"
 }

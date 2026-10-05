@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Validate examples against the declared supported language version.",
     "Check that sample identities, endpoints and datasets are public or demonstrably synthetic."
-  ]
+  ],
+  "category": "website"
 }

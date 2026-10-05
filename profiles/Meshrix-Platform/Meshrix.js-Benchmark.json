@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review capacity, fault and recovery evidence against measured workloads and documented resource assumptions.",
     "Keep benchmark fixtures synthetic and redact host, tenant and execution identifiers from evidence."
-  ]
+  ],
+  "category": "benchmark"
 }

@@ -9,6 +9,8 @@ import re
 OWNERS = ("SymPolicy", "Meshrix-Platform", "LicoLand")
 REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 GROUPS = {"code", "dependencies", "workflows"}
+CATEGORIES = {"unclassified", "software", "tooling", "protocol", "website", "documentation", "benchmark", "organization-profile"}
+MAINTAINER_CATEGORIES = {"website", "documentation", "benchmark", "organization-profile"}
 
 
 def repository_name(value):
@@ -22,6 +24,7 @@ def default_profile(repository):
     return {
         "schema_version": 1,
         "repository": repository,
+        "category": "unclassified",
         "additional_rule_groups": ["code", "dependencies", "workflows"],
         "required_paths": [],
         "local_review": [
@@ -33,11 +36,13 @@ def default_profile(repository):
 
 
 def validate_profile(data, repository):
-    allowed = {"schema_version", "repository", "additional_rule_groups", "required_paths", "local_review"}
+    allowed = {"schema_version", "repository", "category", "additional_rule_groups", "required_paths", "local_review"}
     if not isinstance(data, dict) or set(data) - allowed:
         raise ValueError("Invalid profile fields")
     if data.get("schema_version") != 1 or data.get("repository") != repository:
         raise ValueError("Profile identity or schema does not match")
+    if not isinstance(data.get("category", "unclassified"), str) or data.get("category", "unclassified") not in CATEGORIES:
+        raise ValueError("Invalid repository category")
     groups = data.get("additional_rule_groups", [])
     if not isinstance(groups, list) or any(not isinstance(x, str) or x not in GROUPS for x in groups):
         raise ValueError("Invalid additional rule groups")

@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review public product claims and documented language behavior for consistency.",
     "Review static assets, embedded scripts and forms for credential or visitor-data exposure."
-  ]
+  ],
+  "category": "website"
 }

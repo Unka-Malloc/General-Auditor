@@ -22,11 +22,14 @@ concurrency:
 jobs:
   audit:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
-    outputs:
-      scan_exit: ${{ steps.scan.outputs.exit_code }}
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -72,20 +75,10 @@ jobs:
         with:
           path: out/pages
           retention-days: 1
-  publish:
-    needs: audit
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
       - name: Publish the current HTML report
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
       - name: Surface infrastructure failures after publishing their report
         env:
-          SCAN_EXIT: ${{ needs.audit.outputs.scan_exit }}
+          SCAN_EXIT: ${{ steps.scan.outputs.exit_code }}
         run: test "$SCAN_EXIT" = 0

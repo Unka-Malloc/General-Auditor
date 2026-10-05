@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review community submissions and rendered content as untrusted input.",
     "Separate public contribution metadata from private moderation or user records."
-  ]
+  ],
+  "category": "software"
 }

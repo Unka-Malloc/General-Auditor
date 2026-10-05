@@ -57,6 +57,8 @@ def merge(ledger, results, *, now=None, public_repositories=None):
 
 
 def location(run, item):
+    if item.get("source") == "github-settings":
+        return '<a href="https://github.com/' + escape(run["repository"], quote=True) + '/settings">GitHub repository settings</a>'
     path = escape(item["file"])
     line = item.get("line")
     label = path + (":" + str(line) if line else "")
@@ -83,7 +85,7 @@ def render(ledger, inventory=(), *, local=False):
         for index, run in enumerate(history):
             rows = []
             for item in run["findings"]:
-                rows.append("<tr><td>" + location(run, item) + "<br><small>" + e(item["commit"][:12]) + "</small></td><td>" + e(item["rule"]) + "</td><td>" + e(item["evidence"]) + "</td><td><b>" + e(item["judgment"]) + "</b><br>" + e(item["basis"]) + "</td><td>" + e(item["impact"]) + "<br><br>" + e(item["action"]) + "</td></tr>")
+                rows.append("<tr><td>" + location(run, item) + "<br><small>" + e((item["commit"] or "")[:12]) + "</small></td><td>" + e(item["rule"]) + "</td><td>" + e(item["evidence"]) + "</td><td><b>" + e(item["judgment"]) + "</b><br>" + e(item["basis"]) + "</td><td>" + e(item["impact"]) + "<br><br>" + e(item["action"]) + "</td></tr>")
             findings = ('<div class="scroll"><table><thead><tr><th>File / line / commit</th><th>Rule</th><th>Redacted evidence / category</th><th>Judgment and basis</th><th>Impact and action</th></tr></thead><tbody>' + "".join(rows) + "</tbody></table></div>") if rows else '<p>No pattern warnings in the inspected scope. This is not a privacy clearance.</p>'
             excluded = "".join("<li>" + location(run, item) + " — " + e(item["reason"]) + "</li>" for item in run["coverage"]["excluded"])
             coverage = run["coverage"]

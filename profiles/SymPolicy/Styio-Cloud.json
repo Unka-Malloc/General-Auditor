@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review authentication, authorization and tenant boundaries around cloud execution.",
     "Keep backend configuration, customer payloads and operational records out of source and diagnostics."
-  ]
+  ],
+  "category": "software"
 }

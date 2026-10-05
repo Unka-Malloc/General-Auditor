@@ -12,5 +12,6 @@
     "Review every outgoing commit, not only the final working tree.",
     "Review organization-wide contribution and workflow guidance for repository-specific assumptions.",
     "Keep organization profile metadata public and route contributions to the intended repository only."
-  ]
+  ],
+  "category": "organization-profile"
 }
