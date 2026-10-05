@@ -1,5 +1,11 @@
 name: Publish audit report
 on:
+  push:
+    branches: [only]
+    paths:
+      - general_auditor/report.py
+      - general_auditor/pipeline.py
+      - .github/workflows/publish-report.yml
   workflow_run:
     workflows: ['Audit repository']
     branches: [only]

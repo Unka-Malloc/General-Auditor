@@ -18,7 +18,7 @@ non-maintainer authors and other branch routes.
 | --- | --- | --- |
 | Auditor maintainer authority | All branches | Only the repository administrator role can create, update or delete branches. |
 | Auditor branch lifecycle | Everything except `only` and `work/*` | Branch creation is prohibited, with no bypass actors. |
-| Auditor contribution gate | `only` | PR required, `verify` and `contribution-policy` checks required from GitHub Actions, current base required, conversations resolved, squash-only linear history, no deletion or force push. |
+| Auditor contribution gate | `only` | PR required, `verify` required from GitHub Actions (implementation and contribution checks), current base required, conversations resolved, squash-only linear history, no deletion or force push. |
 
 The contribution gate has **no bypass actors**. Administrator bypass of the
 separate authority Ruleset does not bypass the PR or check requirements. There
