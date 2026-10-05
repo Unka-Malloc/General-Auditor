@@ -110,9 +110,12 @@ that every contract variation has been independently verified. Hosted workflow
 execution, artifact persistence and the Pages HTTP response are separate external
 checks. Queued Actions, a pending PR and a report link are not deployment evidence.
 
-Both former auditor repositories remain public until the authorized retirement
-operation is completed. Their privacy/archive settings must be reported from
-actual GitHub state, and existing live callers must be accounted for before
-removing their public source. Preserve independent local assets and unpublished
-work during cleanup. The [grouped inventory](repositories.md) distinguishes the
-30 continuing upstreams from the two pending retirements.
+Both former auditor repositories are now private and archived. Their dedicated
+active profiles have been removed while shared checks and source/license
+provenance remain. Old local checkouts and skill routing were cleared only after
+independent assets and unpublished work were preserved privately. No private
+backup paths or contents are published here.
+
+The [grouped inventory](repositories.md) lists 30 current public upstreams and
+the two retired archives. The 38 consumer migration draft PRs remain unmerged;
+retirement and consumer default-branch adoption are distinct operational states.

@@ -16,7 +16,7 @@ General-Auditor 为 **SymPolicy、Meshrix-Platform、LicoLand 的全部公开仓
 - 中央 CI 每 15 分钟并发发现公开分支与开放 PR 的变化，发现一个就独立派发该仓库的工作流；慢仓库不阻塞其它仓库。手动入口可指定单个仓库，或显式选择 `all`。
 - 首次或手动扫描读取当前分支快照；后续扫描读取区间内每次提交的变更，包含后来删除的内容。相同仓库、相同提交、相同范围合并扫描。
 - 每个仓库完成后立即保存独立的 Actions 产物；独立发布器合并结果，更新唯一的 Pages HTML 报告与完整检查点，保留最近 30 天记录。每日刷新负责无代码变化时的过期清理，报告不再提交到源码分支。
-- 当前清单包括 30 个继续维护的公开上游和 2 个等待私有归档的旧 Auditor。全部继续维护的上游必须采用 General-Auditor CI；待审改动或 PR 不代表已经部署。已为当前发现的 32 个公开仓库初始化专属检查要求。以后发现的新公开仓库在运行工作区自动初始化通用 profile；维护者通过 PR 保存专属规则。
+- 当前公开清单为 30 个上游仓库；Lico-Auditor 与 styio-audit 已设为私有并归档，其独立 profile 已移除，有效共用规则仍保留。全部公开上游必须采用 General-Auditor CI。目前面向维护分支的 38 个迁移草稿 PR 尚未合并，不能宣称上游默认工作流已经切换。以后发现的新公开仓库在运行工作区自动初始化通用 profile；维护者通过 PR 保存专属规则。
 
 GitHub 定时工作流可能延迟或被平台停用，轮询不是逐事件的实时交付保证。报告中的告警不是泄露结论；无告警也不等于安全。[扫描范围与限制](architecture.md)说明了完整边界。
 
@@ -66,6 +66,6 @@ python3 tools/verify.py
 
 网站、独立文档、基准测试和组织展示仓库会审计 GitHub PR 创建权限与分支 Ruleset。权限偏离会生成警告；只读 API 隐藏的 bypass 身份标记为“未核实”，由管理员工具检查完整配置。详见[访问控制](access-policy.md)。
 
-规则覆盖和上游来源归属见 [Lico-Auditor](https://github.com/LicoLand/Lico-Auditor)、[styio-audit](https://github.com/SymPolicy/styio-audit) 及[来源说明](policy-sources.md)。旧仓库的远程归档与私有化是独立的迁移管理步骤，不能仅凭实现完成或 PR 已创建就宣称完成。
+规则覆盖和上游来源归属见 [Lico-Auditor](https://github.com/LicoLand/Lico-Auditor)、[styio-audit](https://github.com/SymPolicy/styio-audit) 及[来源说明](policy-sources.md)。两个旧 Auditor 的私有归档已经核实；旧本地检出和专属技能入口已清理，独立资产及未发布工作保存在私有备份中。归档与消费者 PR 合并是独立状态，公开来源链接可能需要访问权限。消费者现有分支可能仍引用旧 Auditor，直到迁移 PR 和必要的分支提升完成；私有化后，旧的匿名拉取可能失败。
 
 第一方审计入口使用 `only`，不使用版本命名的工作流或 Auditor 版本标签。

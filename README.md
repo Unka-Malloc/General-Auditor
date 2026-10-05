@@ -10,13 +10,13 @@ Contextual privacy judgments belong to the contributor's local Agent before publ
 
 ## Repository scope
 
-| Organization | Continuing public repositories | Pending auditor retirement | Maintainer-owned publishing repositories |
+| Organization | Continuing public repositories | Retired private auditors | Maintainer-owned publishing repositories |
 | --- | ---: | ---: | ---: |
 | SymPolicy | 17 | 1 | 6 |
 | Meshrix-Platform | 4 | 0 | 2 |
 | LicoLand | 9 | 1 | 4 |
 
-The [grouped inventory](docs/repositories.md) lists 30 continuing repositories and the two still-public auditors pending retirement. Migration changes are prepared for review; an open PR does not establish deployment. Websites, standalone documentation, benchmarks and organization presentation repositories accept collaborator PRs only. An additional Ruleset restricts all branch changes to organization administrators and repository maintain/admin roles. Existing review and status-check rules continue to apply.
+The [grouped inventory](docs/repositories.md) lists 30 public repositories and two retired private archives. The consumer migration has 38 open draft PRs across maintained branch targets; these PRs have not merged and do not establish that upstream default workflows have switched. Websites, standalone documentation, benchmarks and organization presentation repositories accept collaborator PRs only. An additional Ruleset restricts all branch changes to organization administrators and repository maintain/admin roles. Existing review and status-check rules continue to apply.
 
 ## Implemented behavior
 
@@ -78,4 +78,4 @@ python3 tools/verify.py
 
 The verification entry point checks source syntax, rule/profile contracts, and deterministic tests using synthetic Git repositories and mocked GitHub settings. It does not start real Agent conversations.
 
-Policy coverage and source attribution are documented for [Lico-Auditor](https://github.com/LicoLand/Lico-Auditor) and [styio-audit](https://github.com/SymPolicy/styio-audit). Their remote retirement is handled separately from this implementation; see [policy sources](docs/policy-sources.md).
+Policy coverage and source attribution are documented for [Lico-Auditor](https://github.com/LicoLand/Lico-Auditor) and [styio-audit](https://github.com/SymPolicy/styio-audit). Both former repositories are private and archived; their shared policy remains maintained here. Existing consumer branches may still reference the retired sources until the migration PRs and promotions land, and their old anonymous fetches can fail. See [policy sources](docs/policy-sources.md).
