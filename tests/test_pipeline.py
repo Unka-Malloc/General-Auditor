@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 
 from general_auditor.github import APIError
 from general_auditor.pipeline import Actions, assemble, coordinate, merge_result, result_name
-from general_auditor.report import read_json
+from general_auditor.report import read_json, write_json
 from general_auditor.runner import run
 from general_auditor.scanner import failed_result
 from tools.check_contribution import validate
@@ -92,6 +92,16 @@ class ConcurrencyTests(unittest.TestCase):
             result = coordinate(directory, force=True, api=api, actions=actions)
         self.assertEqual(result["dispatched"], ["LicoLand/B"])
         self.assertEqual(result["dispatch_failures"], ["LicoLand/A"])
+
+    def test_visibility_change_requests_publication_without_scanning_removed_repositories(self):
+        api = Mock(repositories=lambda: [])
+        actions = Mock(restore=lambda root: None)
+        with tempfile.TemporaryDirectory() as directory:
+            write_json(Path(directory) / "reports/inventory.json", {"repositories": inventory()})
+            result = coordinate(directory, api=api, actions=actions)
+        actions.dispatch.assert_called_once_with("publish-report.yml", {})
+        self.assertEqual(result["dispatched"], [])
+        api.candidates.assert_not_called()
 
 
 class PersistenceTests(unittest.TestCase):

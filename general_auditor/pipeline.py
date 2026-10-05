@@ -118,6 +118,13 @@ def coordinate(root, repository="all", *, force=False, api=None, actions=None):
             return True
 
     dispatched, failed = [], []
+    previous_inventory = read_json(Path(root) / "reports/inventory.json", None)
+    publication_requested = previous_inventory is not None and previous_inventory["repositories"] != inventory
+    if publication_requested:
+        try:
+            actions.dispatch("publish-report.yml", {})
+        except APIError:
+            failed.append("report-publication")
     with ThreadPoolExecutor(max_workers=8) as pool:
         pending = {pool.submit(changed, row): row["repository"] for row in selected}
         for future in as_completed(pending):
@@ -129,7 +136,7 @@ def coordinate(root, repository="all", *, force=False, api=None, actions=None):
                     print("Dispatched " + name, flush=True)
                 except APIError:
                     failed.append(name)
-    return {"dispatched": dispatched, "incomplete": len(failed), "dispatch_failures": failed}
+    return {"dispatched": dispatched, "incomplete": len(failed), "dispatch_failures": failed, "publication_requested": publication_requested}
 
 
 def audit(root, repository, *, force=False, api=None, actions=None):
