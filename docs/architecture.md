@@ -45,7 +45,7 @@ Public Git snapshots are fetched into isolated temporary bare repositories. No t
 
 ## Reports, persistence and retention
 
-These paths are generated workspace files, stored in the `audit-checkpoint` Actions artifact. The existing committed report seed is retained until its historical records have been restored into a durable checkpoint; ongoing publication does not commit generated reports:
+These paths are generated workspace files, stored in the `audit-checkpoint` Actions artifact. The initial historical report records have been restored into a verified durable checkpoint, so generated reports are no longer tracked in Git. Actions artifacts are the retained data authority and Pages serves the single HTML entry:
 
 - `reports/index.html`: the single HTML report, deployed at the fixed Pages URL.
 - `reports/data.json`: retained redacted runs, deduplicated by run identity and pruned at the UTC 30-day boundary.
