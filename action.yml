@@ -1,0 +1,35 @@
+name: General-Auditor
+description: Common and repository-specific advisory scanning without a cloud Agent
+inputs:
+  repository:
+    description: Owner/repository identity used for selecting its central policy
+    default: ${{ github.repository }}
+  directory:
+    description: Local Git checkout to read without executing its contents
+    default: .
+  head:
+    description: Immutable candidate commit
+    default: ${{ github.sha }}
+  base:
+    description: Optional previous commit; checkout must include full ancestry
+    default: ''
+  output:
+    description: Redacted JSON result path
+    default: general-auditor-result.json
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        AUDITOR_PATH: ${{ github.action_path }}
+        AUDIT_REPOSITORY: ${{ inputs.repository }}
+        AUDIT_DIRECTORY: ${{ inputs.directory }}
+        AUDIT_HEAD: ${{ inputs.head }}
+        AUDIT_BASE: ${{ inputs.base }}
+        AUDIT_OUTPUT: ${{ inputs.output }}
+      run: |
+        args=(scan --repository "$AUDIT_REPOSITORY" --directory "$AUDIT_DIRECTORY" --head "$AUDIT_HEAD" --policy-root "$AUDITOR_PATH" --output "$AUDIT_OUTPUT" --html "$AUDIT_OUTPUT.html")
+        if [[ -n "$AUDIT_BASE" && "$AUDIT_BASE" != 0000000000000000000000000000000000000000 ]]; then
+          args+=(--base "$AUDIT_BASE")
+        fi
+        python3 -I "$AUDITOR_PATH/action_entry.py" "${args[@]}"

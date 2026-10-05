@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "SymPolicy/dp-ring",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Review public API changes and dependency usage against the repository documentation.",
+    "Trace user-controlled input to execution, persistence and diagnostic output."
+  ]
+}

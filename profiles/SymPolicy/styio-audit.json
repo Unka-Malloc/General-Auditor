@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "SymPolicy/styio-audit",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Keep keyword findings advisory and distinguish collected signals from contextual judgments.",
+    "Review rule/module isolation, report redaction and workflow routing; do not fan out an individual repository event."
+  ]
+}

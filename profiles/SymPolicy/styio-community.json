@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "SymPolicy/styio-community",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Review community submissions and rendered content as untrusted input.",
+    "Separate public contribution metadata from private moderation or user records."
+  ]
+}

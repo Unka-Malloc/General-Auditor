@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "LicoLand/LicoArc",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Review normative protocol requirements independently of any one implementation or operator.",
+    "Review encrypted messaging, identity and federation examples for synthetic keys and consistent threat boundaries."
+  ]
+}

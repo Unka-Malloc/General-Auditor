@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "LicoLand/licoup.com",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Review public client features and privacy claims against the supported published behavior.",
+    "Keep customer data, internal service topology and release-operation records out of site assets."
+  ]
+}

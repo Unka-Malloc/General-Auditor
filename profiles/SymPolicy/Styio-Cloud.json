@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "SymPolicy/Styio-Cloud",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Review authentication, authorization and tenant boundaries around cloud execution.",
+    "Keep backend configuration, customer payloads and operational records out of source and diagnostics."
+  ]
+}

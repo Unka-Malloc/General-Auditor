@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "general-auditor"
+version = "0.1.0"
+description = "Repository-scoped audit signals and a rolling public report"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+general-auditor = "general_auditor.cli:main"
+
+[tool.setuptools.package-data]
+general_auditor = ["templates/*"]
+
+[tool.setuptools.packages.find]
+include = ["general_auditor*"]

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "SymPolicy/Gasander",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Review simulation state transitions and reproducibility of balance-design results.",
+    "Use synthetic game and user datasets in published fixtures and examples."
+  ]
+}

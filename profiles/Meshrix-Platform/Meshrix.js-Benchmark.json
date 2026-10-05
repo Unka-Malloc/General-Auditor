@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "Meshrix-Platform/Meshrix.js-Benchmark",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Review capacity, fault and recovery evidence against measured workloads and documented resource assumptions.",
+    "Keep benchmark fixtures synthetic and redact host, tenant and execution identifiers from evidence."
+  ]
+}

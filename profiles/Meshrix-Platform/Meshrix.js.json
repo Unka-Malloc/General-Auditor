@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "Meshrix-Platform/Meshrix.js",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Review agent authority, policy enforcement and execution isolation across client/server boundaries.",
+    "Review persistence, recovery and event processing for consistency; keep private deployment and runtime data out of published artifacts."
+  ]
+}

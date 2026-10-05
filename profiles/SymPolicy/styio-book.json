@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "SymPolicy/styio-book",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Review language examples against the published language behavior and identify speculative features explicitly.",
+    "Use synthetic examples; remove machine-specific paths and nonpublic implementation notes."
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "SymPolicy/styio-benchmark",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Review benchmark workload reproducibility, measurement scope and result interpretation.",
+    "Use synthetic inputs and remove host identifiers or private execution traces from published results."
+  ]
+}

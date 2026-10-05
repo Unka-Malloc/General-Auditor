@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "LicoLand/LicoUp",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Review Agent execution authority, endpoint key custody and user-data access boundaries.",
+    "Review conversation persistence, recovery and export for correctness without publishing real conversations or backend data."
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "SymPolicy/Styio-Preview",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Review parser, evaluator and diagnostic changes against the documented preview language semantics.",
+    "Check preview examples and compiler diagnostics for copied local paths or private source content."
+  ]
+}

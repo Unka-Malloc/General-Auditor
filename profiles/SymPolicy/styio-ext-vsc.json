@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "SymPolicy/styio-ext-vsc",
+  "additional_rule_groups": [
+    "code",
+    "dependencies",
+    "workflows"
+  ],
+  "required_paths": [],
+  "local_review": [
+    "Review privacy and credential findings in context before the first push.",
+    "Review every outgoing commit, not only the final working tree.",
+    "Review workspace trust, process spawning and extension permissions at the editor boundary.",
+    "Check packaged extension resources and diagnostics for local workspace or credential disclosure."
+  ]
+}
