@@ -2,7 +2,7 @@ name: Verify auditor
 
 on:
   push:
-    branches: [only, 'work/*']
+    branches: [only]
   pull_request:
     branches: [only]
   workflow_dispatch:
