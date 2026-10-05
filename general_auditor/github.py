@@ -89,7 +89,7 @@ class GitHub:
             if not SHA.fullmatch(head):
                 raise APIError("Invalid branch commit identity")
             candidates.append({"key": repository + ":branch:" + row["name"], "repository": repository,
-                               "head": head, "base": None, "trigger": "branch", "default": row["name"] == default_branch})
+                               "head": head, "base": None, "trigger": "branch", "default": row["name"] == default_branch, "branch_refs": ["refs/heads/" + branch["name"] for branch in branches]})
         if all_refs:
             for row in self.pages(prefix + "/pulls", state="open"):
                 # Fork commits are fetched through the public upstream PR object.
@@ -99,7 +99,7 @@ class GitHub:
                 if not SHA.fullmatch(head) or not SHA.fullmatch(base):
                     raise APIError("Invalid pull request commit identity")
                 candidates.append({"key": repository + ":pr:" + str(row["number"]), "repository": repository,
-                                   "head": head, "base": base, "trigger": "pull_request", "default": False})
+                                   "head": head, "base": base, "trigger": "pull_request", "default": False, "base_ref": row["base"].get("ref"), "head_ref": row["head"].get("ref"), "branch_refs": ["refs/heads/" + branch["name"] for branch in branches]})
         return candidates
 
     def access_policy(self, repository):

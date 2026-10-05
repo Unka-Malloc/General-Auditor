@@ -13,5 +13,564 @@
     "Review Agent execution authority, endpoint key custody and user-data access boundaries.",
     "Review conversation persistence, recovery and export for correctness without publishing real conversations or backend data."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true,
+    "data_profile": "licoup",
+    "documentation_profile": "licoup",
+    "json_admissions": [
+      {
+        "path": "apps/desktop/scripts/client-architecture/ratchet/baseline.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/client_state_migration/structural_cases.json",
+        "kind": "json"
+      },
+      {
+        "path": "crates/licoup-conversation/resources/state-machines.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "crates/licoup-extension-contracts/samples/echo-agent/manifest.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "crates/licoup-extension-contracts/samples/echo-agent/wire_fixture.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "crates/licoup-native/resources/state-machines/update-handoff.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "schemas/extensions/deployment.schema.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "schemas/extensions/graph-resource.schema.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "schemas/extensions/manifest.schema.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "schemas/extensions/provider.schema.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "schemas/extensions/ui.schema.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "schemas/extensions/usage.schema.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "schemas/subagent_mcp/subagent_mcp.schema.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/card-moved.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/card-part-moved.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/denied-scope.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/grant-changed-digest.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/grant-changed-revision.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/grant-other-member.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/grant-stale-generation.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/grant-widened-span.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/idempotency-conflict.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/identity-conflict.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/invalid-span.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/premature-closure.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/sibling-sequence-collision.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/simple-chat-child.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/stale-revision.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/ungranted-parent-ref.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/unknown-field.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/illegal/wrong-epoch.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/agreement.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/context-composition-request.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/context-manifest.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/goal-completion-transition.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/goal-contract.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/goal-progress.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/interpretation-proposal.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/interpretation-task-child.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/matter.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/parent-card-anchor.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/parent-context-grant.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/parent-grant-basis.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/parent-grant-contained-span.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/qualification.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/sibling-card-order.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/source-ref.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/task-child-admission.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/task-conversation-relation.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/utf8-span.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/wake.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/contracts/legal/work-context.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/integration/continuous-collaboration.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/qualification/all-abstain-heldout.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/qualification/candidate-identity.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/qualification/economic-comparison.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/qualification/evaluation-policy.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/qualification/family-leak.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/qualification/family-split.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/qualification/passing-heldout-recipe.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/qualification/self-confidence.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/qualification/stale-identity-delta.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/qualification/worker-exit-closure.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/qualification/zero-sample-query.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/evaluation/all-abstain-heldout.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/evaluation/candidate-identity.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/evaluation/evaluation-policy.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/evaluation/family-heldout-split.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/evaluation/heldout-denominators.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/evaluation/identity-drift.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/evaluation/live-admission-missing.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/evaluation/native-comparable.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/evaluation/pairing-unmatched-cost.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/evaluation/unknown-cost.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/evaluation/zero-sample.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/scenarios/catalog.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/scenarios/faults.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/adoption/adoption-policy.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/fixtures/continuous-assistant/adoption/live-admission-facts.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/integration/usage_sources/fixtures/otlp-cumulative.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/integration/usage_sources/fixtures/otlp-regressed.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tests/integration/usage_sources/fixtures/otlp-restarted.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tools/development/architecture-views.json",
+        "kind": "json"
+      },
+      {
+        "path": "tools/development/state-machines.json",
+        "kind": "json"
+      },
+      {
+        "path": "tools/development/workflows/01-requirements.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tools/development/workflows/02-milestone.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tools/development/workflows/03-parallel-development.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tools/development/workflows/04-integration-review.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tools/development/workflows/05-engineering-verification.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tools/development/workflows/06-data-transition.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tools/development/workflows/07-engineering-handoff.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tools/development/workflows/08-live-acceptance.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tools/development/workflows/09-defect-repair.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tools/development/workflows/10-privacy-review.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tools/development/workflows/11-contribution.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tools/development/workflows/12-release.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "tools/development/workflows/13-installed-milestone-candidate.json",
+        "kind": "config-object"
+      },
+      {
+        "path": "crates/licoup-native/resources/gateway-credential-migration.json",
+        "kind": "string-map"
+      }
+    ],
+    "schema_fixtures": [
+      "tests/fixtures/client_state_migration/retained_related_tables.sql"
+    ]
+  },
+  "privacy_policy": {
+    "privacy_domain_allowlist": [
+      {
+        "host": "claude.ai",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      },
+      {
+        "host": "claude.com",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      },
+      {
+        "host": "codeload.github.com",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      },
+      {
+        "host": "deepseek.com",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      },
+      {
+        "host": "developer.mozilla.org",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      },
+      {
+        "host": "en.wikipedia.org",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      },
+      {
+        "host": "formulae.brew.sh",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      },
+      {
+        "host": "licoland.org",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      },
+      {
+        "host": "openclaw.ai",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      },
+      {
+        "host": "openfontlicense.org",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      },
+      {
+        "host": "pi.dev",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      },
+      {
+        "host": "scripts.sil.org",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      },
+      {
+        "host": "www.adobe.com",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      }
+    ]
+  },
+  "privacy_exceptions": [
+    {
+      "rule": "privacy.local.machine-path",
+      "path": "tools/scripts/lib/privacy-test-fixtures.mjs",
+      "value": "/Users/maintainer/Library/Application Support/LicoUp",
+      "reason": "Fixed artificial migration refusal input declared by the source-boundary checker. The exact complete value is required to verify safe error redaction; no machine or user data is represented.",
+      "source": "LicoLand/LicoUp public reviewed fixture policy"
+    },
+    {
+      "rule": "privacy.local.machine-path",
+      "path": "tools/scripts/lib/privacy-test-fixtures.mjs",
+      "value": "/Users/maintainer/private/state.db",
+      "reason": "Fixed artificial migration refusal input declared by the source-boundary checker. The exact complete value is required to verify safe error redaction; no machine or user data is represented.",
+      "source": "LicoLand/LicoUp public reviewed fixture policy"
+    },
+    {
+      "rule": "privacy.local.deployment-path",
+      "path": "tools/regression/client-module-regression-tests/runner-safety.mjs",
+      "value": "/tmp/private.log",
+      "reason": "Fixed synthetic invalid diagnostic-log reference used to prove that public regression reports reject absolute private paths.",
+      "source": "LicoLand/LicoUp public reviewed fixture policy"
+    }
+  ]
 }

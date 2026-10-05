@@ -36,6 +36,16 @@ Each privacy finding must identify the file, line and commit when available, rul
 
 Automated records use `warning` and `unreviewed`. They do not assert `confirmed leak` or `false positive`. The local Agent's review must explain that distinction using evidence. A report with no matches is not proof of safety. Missing coverage and failed scans must remain visible.
 
+The local `review-request` and `review-complete` commands can bind a redacted receipt to the exact scan, tasks and findings. A receipt records submitted review content only; it does not attest Agent identity or completion of a real conversation. Keep the request, receipt and reviewed report out of CI artifacts and the shared Pages report. See the [local review template](../general_auditor/templates/LOCAL-REVIEW.md) and [audit coverage ledger](audit-coverage.md).
+
 ## Enforcement
 
-Pattern matches are advisory and return a successful scanner exit status. Invalid configuration, unavailable Git objects or failed infrastructure return a nonzero status. Common deterministic rules are always selected; repository profiles can only add optional rule groups, declared paths and local review requirements. Profile requirements are reviewed by maintainers of General-Auditor; a PR cannot weaken policy by supplying executable rules or a replacement profile inside its target repository.
+Pattern matches are advisory. The `scan` exit contract is:
+
+| Exit | Scan state | Meaning |
+| --- | --- | --- |
+| `0` | `completed` or `completed_with_warnings` | Scanning completed; privacy warnings still require contextual review. |
+| `2` | `policy_failure` | A declared deterministic repository contract failed. |
+| `1` | `incomplete` or execution error | Required input or execution was unavailable; coverage is not complete. |
+
+A `review-complete` command can successfully validate a receipt that records limitations; command success does not certify complete review or privacy safety. Structural checks include declared paths, admitted data formats, documentation structure and CI evidence. Keyword matches inside those surfaces remain advisory. Common deterministic rules are always selected; repository profiles can only add optional rule groups, declared paths and local review requirements. Profile requirements are reviewed by maintainers of General-Auditor; a PR cannot weaken policy by supplying executable rules or a replacement profile inside its target repository.

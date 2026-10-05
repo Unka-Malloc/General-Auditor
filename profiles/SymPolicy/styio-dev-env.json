@@ -13,5 +13,156 @@
     "Review container build inputs, downloaded executables and privilege requirements.",
     "Keep credentials and host-specific configuration outside images, build layers and published examples."
   ],
-  "category": "tooling"
+  "category": "tooling",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default",
+    "resource_contracts": [
+      {
+        "id": "development_environment_images",
+        "owner": "Developer Experience",
+        "description": "Owns reproducible development container and Docker image definitions.",
+        "scope_globs": [
+          "README.md",
+          "docker/**"
+        ],
+        "copying_policy": "Image definitions must use public package sources or documented mirrors and must not embed private registry credentials.",
+        "concurrency_policy": "Toolchain image variants should be updated coherently when compiler baseline versions change.",
+        "nullability_policy": "Missing Dockerfiles make development environment reproduction impossible.",
+        "cleanup_policy": "Built image layers, local caches, and generated credentials must not be tracked.",
+        "state_machine": {
+          "source": "Development environment image lifecycle.",
+          "states": [
+            "declared",
+            "built",
+            "verified"
+          ],
+          "transitions": [
+            {
+              "from": "declared",
+              "to": "built",
+              "on": "docker build"
+            },
+            {
+              "from": "built",
+              "to": "verified",
+              "on": "toolchain smoke test"
+            }
+          ],
+          "invalid_operations": [
+            "embed private registry credentials",
+            "publish unverified toolchain images"
+          ]
+        },
+        "required_tests": [
+          "Dockerfile lint and build smoke tests"
+        ],
+        "required_gates": [
+          "styio-audit common gate",
+          "development environment build gate"
+        ],
+        "audit_risks": [
+          "private registry leakage",
+          "non-reproducible toolchain",
+          "stale compiler baseline"
+        ]
+      }
+    ],
+    "project_inventory": {
+      "audit_profile": "development-environment",
+      "technology_stack": [
+        "Dockerfiles",
+        "LLVM and toolchain setup",
+        "VS Code development container snippets"
+      ],
+      "internal_components": [
+        "lite_development_image",
+        "standard_development_image",
+        "china_mirror_image",
+        "editor_settings"
+      ],
+      "open_source_components": [
+        "Debian/Ubuntu package sources",
+        "LLVM toolchain",
+        "Docker"
+      ],
+      "dependency_manifests": [
+        "docker/lite/Dockerfile",
+        "docker/std/Dockerfile",
+        "docker/cn/lite/Dockerfile"
+      ]
+    },
+    "defect_records": {
+      "root": "docs/audit/defects",
+      "required_audit_fields": [
+        "**Severity:**",
+        "**Evidence:**",
+        "**Test evidence:**",
+        "**Data lifecycle:**",
+        "**Gate impact:**",
+        "**Required closure:**"
+      ],
+      "required_closure_fields": [
+        "**Closure evidence:**",
+        "**Coverage evidence:**",
+        "**Data lifecycle evidence:**",
+        "**Gate evidence:**"
+      ],
+      "closed_statuses": [
+        "closed",
+        "resolved",
+        "cleared"
+      ]
+    },
+    "ci_contract": {
+      "test_gates": {
+        "smoke": "test / smoke",
+        "golden_standard": "test / golden-standard"
+      },
+      "submit_readiness": "A styio-dev-env version is submittable when `test / smoke` and `test / golden-standard` both pass.",
+      "golden_standard_suite": {
+        "required_files": [],
+        "required_markers": {}
+      },
+      "industry_gate_groups": {
+        "dev-env / reproducibility": {
+          "covered_by": "test / golden-standard",
+          "industry_references": [
+            "SLSA producing artifacts: consistent build process and isolated hosted builds",
+            "OpenSSF Scorecard: dependency update and CI test coverage"
+          ],
+          "required_markers": [
+            "dockerfile",
+            "toolchain",
+            "package-manager",
+            "LLVM",
+            "clang",
+            "cmake"
+          ]
+        }
+      }
+    }
+  },
+  "privacy_policy": {
+    "privacy_ip_allowlist": [
+      {
+        "service": "github-pages-apex-dns",
+        "ips": [
+          "185.199.108.153",
+          "185.199.109.153",
+          "185.199.110.153",
+          "185.199.111.153",
+          "2606:50c0:8000::153",
+          "2606:50c0:8001::153",
+          "2606:50c0:8002::153",
+          "2606:50c0:8003::153"
+        ],
+        "path_globs": [
+          "docs/dns-and-pages.html",
+          "docs/**/dns-and-pages.html",
+          "modules/default/module.json"
+        ]
+      }
+    ]
+  }
 }

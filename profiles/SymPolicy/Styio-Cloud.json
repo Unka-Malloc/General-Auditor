@@ -13,5 +13,634 @@
     "Review authentication, authorization and tenant boundaries around cloud execution.",
     "Keep backend configuration, customer payloads and operational records out of source and diagnostics."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default",
+    "resource_contracts": [
+      {
+        "id": "native_contract_governance",
+        "owner": "Control Plane / Contracts",
+        "description": "Owns native JSON contract packages, canonical examples, route snapshots, and compatibility gates.",
+        "scope_globs": [
+          "contracts/**",
+          "tests/interop/*contract*gate.py",
+          "tests/interop/native-contract-source-gate.py",
+          "scripts/repo-hygiene-gate.py",
+          "scripts/delivery-gate.sh"
+        ],
+        "copying_policy": "Contract examples and shape catalogs must stay compact and canonical; generated third-party contract projections must not become source of truth.",
+        "concurrency_policy": "Contract changes are review-serialized through native JSON gates and must not publish partially updated examples.",
+        "nullability_policy": "Absent route fields, missing request bodies, and optional payload fields must be represented explicitly in the native JSON shape system.",
+        "cleanup_policy": "Retired contract artifacts and generators must be deleted with matching documentation and gate updates.",
+        "state_machine": {
+          "source": "Native JSON contract files, example packs, interop gates, repo hygiene, and delivery gate output.",
+          "states": [
+            "drafted",
+            "validated",
+            "documented",
+            "gated",
+            "published",
+            "failed"
+          ],
+          "transitions": [
+            {
+              "from": "drafted",
+              "to": "validated",
+              "on": "shape and example gates pass"
+            },
+            {
+              "from": "validated",
+              "to": "documented",
+              "on": "governance docs and runbooks describe the route family"
+            },
+            {
+              "from": "documented",
+              "to": "gated",
+              "on": "delivery gate runs contract checks"
+            },
+            {
+              "from": "gated",
+              "to": "published",
+              "on": "branch CI and repo hygiene pass"
+            },
+            {
+              "from": "drafted",
+              "to": "failed",
+              "on": "route snapshot, example, or forbidden artifact check fails"
+            }
+          ],
+          "invalid_operations": [
+            "publishing route changes without examples",
+            "accepting removed operations without version bump",
+            "keeping retired generated contract files",
+            "bypassing native source gates"
+          ]
+        },
+        "required_tests": [
+          "styio-cloud-control-plane contract gate in unit, integration, regression, smoke, and fuzz modes",
+          "native-contract-source-gate",
+          "registry and hosted contract gates for touched packages"
+        ],
+        "required_gates": [
+          "ctest --test-dir build-codex --output-on-failure",
+          "scripts/delivery-gate.sh --mode checkpoint"
+        ],
+        "audit_risks": [
+          "contract drift",
+          "stale examples",
+          "forbidden generated API artifact",
+          "client/server envelope mismatch"
+        ]
+      },
+      {
+        "id": "cloud_service_kernel",
+        "owner": "Styio Cloud Kernel / Service Runtime",
+        "description": "Owns the C++ platform service kernel, daemon entrypoint, route dispatch, mTLS identity parsing, job lifecycle, and service configuration.",
+        "scope_globs": [
+          "src/StyioCloudService/**",
+          "src/CMakeLists.txt",
+          "tests/native/StyioCloudKernelTests.cpp"
+        ],
+        "copying_policy": "HTTP payloads, job requests, and artifact metadata must be bounded or represented by object keys before being copied across service boundaries.",
+        "concurrency_policy": "Job claim and completion behavior must be single-owner; production queue state must use Postgres row locking before multi-worker promotion.",
+        "nullability_policy": "Missing identities, routes, jobs, workers, object-store settings, and database configuration must return structured failure envelopes.",
+        "cleanup_policy": "Worker-owned jobs, heartbeat state, temporary artifacts, and daemon resources must define cleanup on completion, cancellation, and failure.",
+        "state_machine": {
+          "source": "StyioCloudRouter, styio-cloudd self-test, Postgres migration SQL, ObjectStore policy, and native service tests.",
+          "states": [
+            "configured",
+            "ready",
+            "queued",
+            "running",
+            "completed",
+            "cancelled",
+            "failed"
+          ],
+          "transitions": [
+            {
+              "from": "configured",
+              "to": "ready",
+              "on": "config and mTLS policy validate"
+            },
+            {
+              "from": "ready",
+              "to": "queued",
+              "on": "job request is accepted"
+            },
+            {
+              "from": "queued",
+              "to": "running",
+              "on": "registered worker claims job"
+            },
+            {
+              "from": "running",
+              "to": "completed",
+              "on": "worker submits terminal success"
+            },
+            {
+              "from": "running",
+              "to": "failed",
+              "on": "worker submits terminal failure"
+            },
+            {
+              "from": "queued",
+              "to": "cancelled",
+              "on": "client cancellation is accepted"
+            }
+          ],
+          "invalid_operations": [
+            "claiming jobs with unregistered workers",
+            "completing jobs from non-owning workers",
+            "serving internal routes without mTLS identity",
+            "using object payloads instead of object keys for durable artifacts"
+          ]
+        },
+        "required_tests": [
+          "native StyioCloudService tests for route matching, identity, object keys, Postgres SQL, and job lifecycle",
+          "styio-cloudd --self-test"
+        ],
+        "required_gates": [
+          "cmake --build build-codex",
+          "ctest --test-dir build-codex -R StyioCloudService"
+        ],
+        "audit_risks": [
+          "worker ownership bypass",
+          "mTLS identity confusion",
+          "queue race",
+          "unbounded artifact payload",
+          "configuration drift"
+        ]
+      },
+      {
+        "id": "registry_mirror_distribution",
+        "owner": "Registry / Mirror / Regional Nodes",
+        "description": "Owns registry control-plane contracts, registry v2 compatibility, mirror freshness, replay cursor semantics, and regional node runbooks.",
+        "scope_globs": [
+          "contracts/registry-control-plane/**",
+          "contracts/registry-v2/**",
+          "docs/registry/**",
+          "docs/operations/Styio-Cloud-Regional-Node-Runbook.md",
+          "src/StyioCloudService/**"
+        ],
+        "copying_policy": "Registry metadata, mirror snapshots, and artifact references must be keyed by immutable object references rather than duplicated into control-plane payloads.",
+        "concurrency_policy": "Authoritative writes, mirror replay, and freshness publication must expose explicit origin and cursor state before multi-region promotion.",
+        "nullability_policy": "Missing mirror cursors, lagging freshness, absent package objects, and unavailable origins must be explicit states.",
+        "cleanup_policy": "Failed mirror sync and partial registry writes must be replayable or rolled back to the last published freshness cursor.",
+        "state_machine": {
+          "source": "Registry contract gates, registry v2 schemas, mirror synchronization docs, and platform control-plane mirror route examples.",
+          "states": [
+            "authoritative",
+            "replicating",
+            "fresh",
+            "lagging",
+            "replayable",
+            "failed"
+          ],
+          "transitions": [
+            {
+              "from": "authoritative",
+              "to": "replicating",
+              "on": "mirror sync starts from an accepted origin"
+            },
+            {
+              "from": "replicating",
+              "to": "fresh",
+              "on": "required objects and indexes are available"
+            },
+            {
+              "from": "replicating",
+              "to": "lagging",
+              "on": "cursor is behind the origin checkpoint"
+            },
+            {
+              "from": "lagging",
+              "to": "replayable",
+              "on": "failed sync records a replay cursor"
+            },
+            {
+              "from": "replayable",
+              "to": "fresh",
+              "on": "replay reaches the promoted cursor"
+            },
+            {
+              "from": "replicating",
+              "to": "failed",
+              "on": "required object or metadata validation fails"
+            }
+          ],
+          "invalid_operations": [
+            "serving promoted freshness without required objects",
+            "accepting anonymous writes on mirror read origins",
+            "hiding mirror lag",
+            "discarding replay cursors"
+          ]
+        },
+        "required_tests": [
+          "registry-control-plane contract gate",
+          "registry-v2 contract gate",
+          "platform mirror status contract smoke"
+        ],
+        "required_gates": [
+          "ctest --test-dir build-codex -R 'registry|control_plane|mirror'",
+          "scripts/delivery-gate.sh --mode checkpoint"
+        ],
+        "audit_risks": [
+          "stale mirror served as fresh",
+          "registry write confusion",
+          "missing object referenced by index",
+          "non-replayable sync failure"
+        ]
+      },
+      {
+        "id": "documentation_delivery_gates",
+        "owner": "Docs Delivery / Coordination",
+        "description": "Owns platform documentation structure, team runbooks, docs stats, source hygiene, and post-commit CI evidence.",
+        "scope_globs": [
+          "README.md",
+          "docs/**",
+          "scripts/docs-*.py",
+          "scripts/team-docs-gate.py",
+          "scripts/repo-hygiene-gate.py",
+          ".github/workflows/**"
+        ],
+        "copying_policy": "Docs indexes and reports must be generated from source files and must not copy obsolete contract text into new governance pages.",
+        "concurrency_policy": "Docs and gate changes must update the owning team runbook and DOC-STATS in the same delivery.",
+        "nullability_policy": "Missing Purpose, Last updated, collection README, collection INDEX, or ownership runbook entries must fail docs audit.",
+        "cleanup_policy": "Generated caches, temporary audit output, and retired workflow artifacts must stay untracked unless they are intentional reports.",
+        "state_machine": {
+          "source": "docs-audit, team-docs-gate, repo-hygiene-gate, delivery-gate, CI workflows, and docs team runbooks.",
+          "states": [
+            "edited",
+            "indexed",
+            "owned",
+            "audited",
+            "delivered",
+            "failed"
+          ],
+          "transitions": [
+            {
+              "from": "edited",
+              "to": "indexed",
+              "on": "docs-index output is current"
+            },
+            {
+              "from": "indexed",
+              "to": "owned",
+              "on": "team runbooks and DOC-STATS cover touched surfaces"
+            },
+            {
+              "from": "owned",
+              "to": "audited",
+              "on": "docs audit and repo hygiene pass"
+            },
+            {
+              "from": "audited",
+              "to": "delivered",
+              "on": "delivery gate and CI pass"
+            },
+            {
+              "from": "edited",
+              "to": "failed",
+              "on": "metadata, ownership, or hygiene gate fails"
+            }
+          ],
+          "invalid_operations": [
+            "claiming docs completion without runbook ownership",
+            "leaving obsolete contract references",
+            "tracking caches",
+            "skipping post-push CI monitoring"
+          ]
+        },
+        "required_tests": [
+          "docs-index --check",
+          "docs-audit.py",
+          "team-docs-gate.py",
+          "repo-hygiene-gate.py --mode tracked"
+        ],
+        "required_gates": [
+          "scripts/docs-gate.sh",
+          "scripts/delivery-gate.sh --mode checkpoint"
+        ],
+        "audit_risks": [
+          "docs ownership drift",
+          "obsolete contract wording",
+          "missing gate documentation",
+          "untracked generated clutter"
+        ]
+      }
+    ],
+    "project_inventory": {
+      "audit_profile": "backend-operations",
+      "technology_stack": [
+        "C++ platform service kernel built with CMake and CTest",
+        "Native JSON contract packages and canonical examples",
+        "Python contract, registry, docs, hygiene, and stress gates",
+        "Bash delivery and docs scripts",
+        "Systemd-managed Linux VM deployment packaging for registry server nodes",
+        "JSON and YAML control-plane artifacts",
+        "TypeScript and web fixture surfaces present in the repository",
+        "GitHub Actions workflow automation"
+      ],
+      "internal_components": [
+        "StyioCloudService route dispatch, daemon self-test, identity, object-store, and job lifecycle code",
+        "Registry control-plane and registry v2 contract packages",
+        "VM registry deployment package, installer, static read server, and smoke gate",
+        "Native contract governance, example packs, and source gates",
+        "Registry mirror distribution and regional node runbooks",
+        "Docs ownership, team runbook, repo hygiene, and delivery gate automation",
+        "Native and interop tests for platform service and contract compatibility"
+      ],
+      "open_source_components": [
+        "CMake and CTest",
+        "nlohmann_json",
+        "tomlplusplus",
+        "googletest",
+        "Python standard library tooling",
+        "Bash shell tooling",
+        "OpenSSL command-line tooling for registry role-key generation",
+        "systemd-compatible Linux service management for VM deployment",
+        "GitHub Actions"
+      ],
+      "dependency_manifests": [
+        "CMakeLists.txt",
+        "src/CMakeLists.txt",
+        "tests/CMakeLists.txt",
+        "contracts/**/*.json",
+        ".github/workflows/*.yml"
+      ],
+      "security_boundaries": [
+        "Authentication, authorization, and mTLS identity implementation may be public when it uses documented standard protocol behavior.",
+        "Privacy and PII payloads must not be committed in control-plane examples, contract packs, reports, or logs.",
+        "Password storage is not a production styio-cloud responsibility; any password fixture must be fake test data.",
+        "Secret, token, key, and credential material must stay private even when registry key-generation helper code is public.",
+        "Production private material, certificates, signing keys, registry role keys, and generated key bundles are offline or not committed to GitHub.",
+        "Permission matrix and route authorization behavior for platform service, object store, job, worker, and registry mirror routes must be covered by regression tests.",
+        "Deployment security config must document TLS, mTLS, CORS, CSRF, cookie, debug exposure, and regional-node boundaries where applicable.",
+        "SBOM, CVE, and dependency vulnerability scan evidence is required before release or external deployment gates pass.",
+        "DAST black-box penetration security regression must cover deployed platform, registry mirror, and regional-node HTTP surfaces before public deployment.",
+        "Runtime secret manager or KMS key rotation owns production certificates, signing keys, hosted tokens, and registry credentials.",
+        "Rate limit, anti replay nonce, and idempotency boundaries must be documented for platform service, job, worker, object-store, and registry mirror routes.",
+        "Log redaction and audit log rules must prevent request tokens, certificates, object keys, and credentials from being written to logs.",
+        "SSRF egress allowlist and URL allowlist boundaries must cover registry mirror fetches, object-store calls, and outbound control-plane requests.",
+        "Command execution must use subprocess allowlists and reject shell injection surfaces for deployment, registry, and maintenance helpers."
+      ]
+    },
+    "license": {
+      "label": "Apache-2.0",
+      "spdx": [
+        "Apache-2.0"
+      ],
+      "text_markers": [
+        "Apache License",
+        "Version 2.0"
+      ],
+      "files": [
+        "LICENSE",
+        "LICENSE.md",
+        "LICENSE.txt",
+        "COPYING",
+        "COPYING.md",
+        "COPYING.txt"
+      ],
+      "metadata_files": [
+        "pyproject.toml",
+        "package.json",
+        "pubspec.yaml"
+      ],
+      "notice_files": [
+        "LICENSE-POLICY.md",
+        "NOTICE",
+        "NOTICE.md",
+        "README.md",
+        "docs/LICENSE-POLICY.md"
+      ],
+      "notice_markers": [
+        "Apache",
+        "License",
+        "Version 2.0"
+      ]
+    },
+    "dependencies": {
+      "manifest_globs": [
+        "package.json",
+        "**/package.json",
+        "pyproject.toml",
+        "**/pyproject.toml",
+        "pubspec.yaml",
+        "**/pubspec.yaml",
+        "CMakeLists.txt",
+        "**/CMakeLists.txt",
+        "requirements*.txt",
+        "**/requirements*.txt",
+        "Cargo.toml",
+        "**/Cargo.toml",
+        "go.mod",
+        "**/go.mod",
+        "Package.swift",
+        "**/Package.swift",
+        "vcpkg.json",
+        "**/vcpkg.json"
+      ],
+      "boundary_files": [
+        "DEPENDENCY-USAGE.md",
+        "THIRD-PARTY-NOTICES.md",
+        "docs/DEPENDENCY-USAGE.md",
+        "docs/dependencies.md",
+        "docs/third-party.md",
+        "docs/specs/DEPENDENCY-USAGE.md",
+        "docs/specs/dependencies.md",
+        "docs/specs/third-party.md"
+      ],
+      "required_marker_groups": [
+        "dependency|依赖",
+        "commercial|商业",
+        "authorization|授权",
+        "usage boundary|使用边界|边界"
+      ],
+      "warning_terms": [
+        "commercial license",
+        "commercial authorization",
+        "paid license",
+        "subscription",
+        "membership",
+        "member-only",
+        "trial license",
+        "evaluation only",
+        "proprietary",
+        "商业授权",
+        "商业许可证",
+        "付费授权",
+        "订阅",
+        "会员制",
+        "试用授权",
+        "专有许可证"
+      ]
+    },
+    "defect_records": {
+      "root": "docs/audit/defects",
+      "required_audit_fields": [
+        "**Severity:**",
+        "**Evidence:**",
+        "**Test evidence:**",
+        "**Data lifecycle:**",
+        "**Gate impact:**",
+        "**Required closure:**"
+      ],
+      "required_closure_fields": [
+        "**Closure evidence:**",
+        "**Coverage evidence:**",
+        "**Data lifecycle evidence:**",
+        "**Gate evidence:**"
+      ],
+      "closed_statuses": [
+        "closed",
+        "resolved",
+        "cleared"
+      ]
+    },
+    "ci_contract": {
+      "platform_adaptation": {
+        "linux": "platform-adaptation / linux-ci-gate"
+      },
+      "test_gates": {
+        "smoke": "test / smoke",
+        "golden_standard": "test / golden-standard"
+      },
+      "submit_readiness": "A styio-cloud service version is submittable when `platform-adaptation / linux-ci-gate`, `test / smoke`, and `test / golden-standard` all pass.",
+      "golden_standard_suite": {
+        "manifest": "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md",
+        "required_files": [
+          "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md"
+        ],
+        "required_markers": {
+          "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md": [
+            "test / smoke",
+            "test / golden-standard",
+            "submit readiness"
+          ]
+        }
+      },
+      "industry_gate_groups": {
+        "backend / service-security": {
+          "covered_by": "test / golden-standard",
+          "industry_references": [
+            "OpenSSF Scorecard: branch protection, CI tests, code review, dangerous workflow, dependency update, fuzzing, packaging",
+            "GitHub CodeQL code scanning: semantic code analysis for vulnerability patterns",
+            "SLSA producing artifacts: consistent build process, provenance, and isolated hosted builds"
+          ],
+          "required_markers": [
+            "auth boundary",
+            "deployment security",
+            "dependency vulnerability",
+            "runtime secret",
+            "interop contract",
+            "state-machine regression"
+          ]
+        }
+      },
+      "local_gate_profile": {
+        "profile_id": "styio-cloud-delivery-gate-profile",
+        "manifest": "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md",
+        "covered_by": "test / golden-standard",
+        "required_markers": [
+          "repo-owned adaptation",
+          "delivery-gate.sh",
+          "public interop",
+          "native CMake",
+          "service tooling"
+        ]
+      }
+    },
+    "server_boundary": {
+      "required_manifest_groups": [
+        "auth|authentication|authorization|identity|鉴权",
+        "privacy|pii|personal data|隐私",
+        "password|密码",
+        "secret|token|key|credential|密钥",
+        "production|offline|private material|not committed|不进仓库|离线",
+        "permission matrix|route authorization|rbac|role based access|权限矩阵",
+        "deployment security|deployment config|tls|cors|csrf|cookie|部署安全",
+        "sbom|cve|dependency vulnerability|vulnerability scan|依赖漏洞",
+        "dast|black-box|penetration|security regression|渗透",
+        "runtime secret|secret manager|kms|key rotation|密钥轮换",
+        "rate limit|anti replay|replay protection|nonce|idempotency|限流|重放",
+        "log redaction|sensitive log|audit log|日志脱敏",
+        "ssrf|egress allowlist|url allowlist|outbound request|出站",
+        "command execution|shell injection|subprocess allowlist|命令执行"
+      ],
+      "restricted_path_globs": [
+        ".env",
+        ".env.*",
+        "**/.env",
+        "**/.env.*",
+        "**/.kube/**",
+        "**/*kubeconfig*",
+        "**/*.tfstate",
+        "**/*.tfstate.*",
+        "**/*.tfvars",
+        "**/ansible/**",
+        "**/deploy/prod/**",
+        "**/deploy/production/**",
+        "**/infra/**",
+        "**/inventory.ini",
+        "**/ops/**",
+        "**/private/**",
+        "**/prod/**",
+        "**/production/**",
+        "**/*.p12",
+        "**/*.pfx",
+        "**/id_rsa",
+        "**/id_ed25519",
+        "**/private/*.key",
+        "**/private/*.pem",
+        "**/production/*.key",
+        "**/production/*.pem",
+        "**/*prod*secret*.json",
+        "**/*production*secret*.json"
+      ]
+    },
+    "branch": {
+      "required_refs": [
+        "release",
+        "stable",
+        "nightly"
+      ],
+      "development_bases": [
+        "nightly"
+      ],
+      "pr_flows": [
+        {
+          "head": "nightly",
+          "base": "stable"
+        },
+        {
+          "head": "stable",
+          "base": "release"
+        }
+      ]
+    }
+  },
+  "privacy_policy": {
+    "privacy_ip_allowlist": [
+      {
+        "service": "github-pages-apex-dns",
+        "ips": [
+          "185.199.108.153",
+          "185.199.109.153",
+          "185.199.110.153",
+          "185.199.111.153",
+          "2606:50c0:8000::153",
+          "2606:50c0:8001::153",
+          "2606:50c0:8002::153",
+          "2606:50c0:8003::153"
+        ],
+        "path_globs": [
+          "docs/dns-and-pages.html",
+          "docs/**/dns-and-pages.html",
+          "modules/default/module.json"
+        ]
+      }
+    ]
+  }
 }

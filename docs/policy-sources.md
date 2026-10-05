@@ -1,12 +1,53 @@
 # Policy sources and consolidation
 
-General-Auditor consolidates policy concepts from two independent public projects:
+The [audit coverage ledger](audit-coverage.md) maps each retained check family
+to its General-Auditor implementation, tests, or explicit requirement-backed
+replacement. This document records source lineage and scoped attribution.
 
-| Source | Adopted concepts | Scope in General-Auditor |
+| Source | Policy material used | General-Auditor treatment |
 | --- | --- | --- |
-| [Lico-Auditor](https://github.com/LicoLand/Lico-Auditor) | Privacy-first evidence, credential and local-information signals, repository profiles, contextual review and developer-facing reports | Common privacy signals, per-finding redaction, additive profiles and local Agent review requirements |
-| [styio-audit](https://github.com/SymPolicy/styio-audit) | Common and repository modules, dependency/usage review, lifecycle and workflow review, inventory | Central public inventory, independent profiles, optional code/dependency/workflow signal groups and project-specific review tasks |
+| [Lico-Auditor](https://github.com/LicoLand/Lico-Auditor) | First-party privacy, documentation, contribution, repository-profile and contextual-review policy | Owner-authorized policy data and review intent are represented in the common detector, central profiles, repository policy checks and local review. No Lico-Auditor package is imported or executed. |
+| [styio-audit](https://github.com/SymPolicy/styio-audit) | Public common checks and repository-specific resource, dependency, license and CI contract inventories | Selected policy data is adapted into central repository profiles and the policy evaluator. The evaluator consumes the adapted declarations; no styio-audit package is imported or executed. |
 
-The new scanner is a standard-library implementation. Existing source trees, unpublished local modifications, private operational data and protected-name lists are not copied into it. Neither upstream repository is treated as a runtime executable dependency.
+The detector and policy evaluator use Python's standard library. Source-derived
+policy data does not create a runtime dependency on either former auditor.
 
-General-Auditor adopts its own PR-only `only` branch, linear history, resolved discussions and required verification from the upstream contribution gates, with checks bound to GitHub Actions. See [maintainer governance](contributing.md). Project-specific license choices, multiple release channels, version workflows, directory requirements and downstream fan-out from an older auditor are not universal policy here. Pattern detection never becomes a blocking verdict. General-Auditor adds a single rolling report and schedules each observed repository independently. Local contextual Agent review remains distinct from deterministic CI signal collection.
+Styio's selected policy data remains subject to its Apache-2.0 terms. The scoped
+attribution is in the repository-root [`NOTICE`](../NOTICE), and the unmodified
+license text is preserved in [`LICENSES/APACHE-2.0.txt`](../LICENSES/APACHE-2.0.txt).
+The source repository's [license policy](https://github.com/SymPolicy/styio-audit/blob/main/LICENSE-POLICY.md)
+and [Apache license](https://github.com/SymPolicy/styio-audit/blob/main/LICENSE)
+are the source references. The scoped notice does not set a license for
+General-Auditor as a whole.
+
+Lico-Auditor's first-party policy reuse was directly authorized by its owner.
+No third-party source code is imported as a dependency. This document does not
+copy private operational records, local machine details, exact detector values,
+or private source content.
+
+## Deliberate policy boundaries
+
+- Every repository receives the mandatory common baseline. A trusted central
+  profile can add its repository-specific data, structural contracts and local
+  semantic tasks; it cannot disable common rules or execute target code.
+- Privacy and keyword signals remain advisory. A pattern, field name, IP shape,
+  token shape or commercial term does not itself establish a violation. Local
+  contextual review remains separate from CI results.
+- CI preserves applicable deterministic repository contracts such as file
+  admission, resource-scope presence, dependency/license evidence, publishing
+  access, documentation structure, and declared workflow requirements. Missing
+  evidence or an applicable contract failure is not converted into a privacy
+  verdict; incomplete input is reported separately.
+- No single release-branch chain, source layout, license, CI suite or package
+  framework is imposed on unrelated repositories. Obsolete multi-channel
+  promotion workflows are not recreated as a universal policy.
+- A local false-positive judgment applies only to its exact scan and finding.
+  It does not create a lasting path/value exception. Shared reports contain
+  redacted scan findings, never local receipt reasoning or source snippets.
+
+## Source repository retirement
+
+The Lico-Auditor and styio-audit repositories are still public while migration
+coverage and live dependency safety are being established. Making them private
+and archiving them is a separate administrative step; this implementation or a
+pending consumer pull request does not by itself mean that retirement occurred.

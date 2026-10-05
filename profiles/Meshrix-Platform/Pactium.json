@@ -13,5 +13,8 @@
     "Review protocol and integration contracts against published repository documentation.",
     "Trace authority and data handling across external dependency and execution boundaries."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true
+  }
 }

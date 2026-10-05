@@ -13,5 +13,146 @@
     "Validate examples against the declared supported language version.",
     "Check that sample identities, endpoints and datasets are public or demonstrably synthetic."
   ],
-  "category": "website"
+  "category": "website",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default",
+    "resource_contracts": [
+      {
+        "id": "example_catalog",
+        "owner": "Language Examples",
+        "description": "Owns public example documentation and beginner-facing Styio sample files.",
+        "scope_globs": [
+          "README.md"
+        ],
+        "copying_policy": "Examples must be self-contained public samples and must not copy production data, private endpoints, or proprietary snippets.",
+        "concurrency_policy": "Example changes should track the compiler syntax supported by current public branches.",
+        "nullability_policy": "An empty or missing README makes the example catalog unauditable.",
+        "cleanup_policy": "Generated example outputs and local scratch files must not be tracked.",
+        "state_machine": {
+          "source": "Example lifecycle.",
+          "states": [
+            "draft",
+            "checked",
+            "published"
+          ],
+          "transitions": [
+            {
+              "from": "draft",
+              "to": "checked",
+              "on": "run sample syntax or documentation check"
+            },
+            {
+              "from": "checked",
+              "to": "published",
+              "on": "merge approved example"
+            }
+          ],
+          "invalid_operations": [
+            "publish private backend coordinates",
+            "ship examples incompatible with current syntax"
+          ]
+        },
+        "required_tests": [
+          "example syntax smoke tests when sample files are present"
+        ],
+        "required_gates": [
+          "styio-audit common gate"
+        ],
+        "audit_risks": [
+          "stale examples",
+          "private data leakage",
+          "syntax drift"
+        ]
+      }
+    ],
+    "project_inventory": {
+      "audit_profile": "example-basic",
+      "technology_stack": [
+        "Markdown examples",
+        "Styio sample programs"
+      ],
+      "internal_components": [
+        "example_catalog",
+        "sample_programs"
+      ],
+      "open_source_components": [
+        "Styio language examples"
+      ],
+      "dependency_manifests": [
+        "README.md"
+      ]
+    },
+    "defect_records": {
+      "root": "docs/audit/defects",
+      "required_audit_fields": [
+        "**Severity:**",
+        "**Evidence:**",
+        "**Test evidence:**",
+        "**Data lifecycle:**",
+        "**Gate impact:**",
+        "**Required closure:**"
+      ],
+      "required_closure_fields": [
+        "**Closure evidence:**",
+        "**Coverage evidence:**",
+        "**Data lifecycle evidence:**",
+        "**Gate evidence:**"
+      ],
+      "closed_statuses": [
+        "closed",
+        "resolved",
+        "cleared"
+      ]
+    },
+    "ci_contract": {
+      "test_gates": {
+        "smoke": "test / smoke",
+        "golden_standard": "test / golden-standard"
+      },
+      "submit_readiness": "A styio-example version is submittable when `test / smoke` and `test / golden-standard` both pass.",
+      "golden_standard_suite": {
+        "required_files": [],
+        "required_markers": {}
+      },
+      "industry_gate_groups": {
+        "examples / runnable-contract": {
+          "covered_by": "test / golden-standard",
+          "industry_references": [
+            "LLVM Testing Infrastructure Guide: small regression cases and reference output comparison",
+            "OpenSSF Scorecard: CI tests before merge"
+          ],
+          "required_markers": [
+            "example source",
+            "documented output",
+            "bubble sort",
+            "README",
+            "runnable sample"
+          ]
+        }
+      }
+    }
+  },
+  "privacy_policy": {
+    "privacy_ip_allowlist": [
+      {
+        "service": "github-pages-apex-dns",
+        "ips": [
+          "185.199.108.153",
+          "185.199.109.153",
+          "185.199.110.153",
+          "185.199.111.153",
+          "2606:50c0:8000::153",
+          "2606:50c0:8001::153",
+          "2606:50c0:8002::153",
+          "2606:50c0:8003::153"
+        ],
+        "path_globs": [
+          "docs/dns-and-pages.html",
+          "docs/**/dns-and-pages.html",
+          "modules/default/module.json"
+        ]
+      }
+    ]
+  }
 }

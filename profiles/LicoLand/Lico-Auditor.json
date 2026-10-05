@@ -13,5 +13,9 @@
     "Preserve contextual Agent review as the authority for privacy judgments; patterns supply advisory evidence.",
     "Review scope selection, per-finding redaction, portable profiles and independent policy assets."
   ],
-  "category": "tooling"
+  "category": "tooling",
+  "repository_policy": {
+    "require_workflow": true,
+    "data_profile": "common"
+  }
 }

@@ -13,5 +13,158 @@
     "Review developer procedures against actual supported commands and repository interfaces.",
     "Separate public development examples from internal service configuration and operational records."
   ],
-  "category": "documentation"
+  "category": "documentation",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default",
+    "resource_contracts": [
+      {
+        "id": "developer_manual_surface",
+        "owner": "Developer Documentation",
+        "description": "Owns developer-facing manuals, runbooks, standards, and documentation validation scripts.",
+        "scope_globs": [
+          "README.md",
+          "en/**",
+          "zh/**",
+          "scripts/**",
+          ".github/workflows/**"
+        ],
+        "copying_policy": "Developer docs may reference public source and APIs but must not copy private credentials, deployment inventory, or unpublished operations material.",
+        "concurrency_policy": "Bilingual and ecosystem matrix updates should remain consistent when shared repository contracts change.",
+        "nullability_policy": "Missing summaries, standards, or validation scripts make documentation coverage incomplete.",
+        "cleanup_policy": "Generated documentation build artifacts must stay under ignored artifact directories.",
+        "state_machine": {
+          "source": "Developer documentation lifecycle.",
+          "states": [
+            "draft",
+            "validated",
+            "published"
+          ],
+          "transitions": [
+            {
+              "from": "draft",
+              "to": "validated",
+              "on": "run documentation checks"
+            },
+            {
+              "from": "validated",
+              "to": "published",
+              "on": "merge approved documentation"
+            }
+          ],
+          "invalid_operations": [
+            "publish private operations material",
+            "skip documentation validation"
+          ]
+        },
+        "required_tests": [
+          "scripts/verify.sh or equivalent documentation validation"
+        ],
+        "required_gates": [
+          "styio-audit common gate",
+          "gitbook documentation gate"
+        ],
+        "audit_risks": [
+          "stale developer workflow",
+          "bilingual drift",
+          "private infrastructure leakage"
+        ]
+      }
+    ],
+    "project_inventory": {
+      "audit_profile": "documentation-basic",
+      "technology_stack": [
+        "Markdown developer manuals",
+        "GitBook-style English and Chinese documentation",
+        "Python documentation checks"
+      ],
+      "internal_components": [
+        "english_developer_manual",
+        "chinese_developer_manual",
+        "documentation_check_scripts",
+        "ecosystem_repository_matrix"
+      ],
+      "open_source_components": [
+        "Markdown",
+        "Python standard library",
+        "GitBook conventions"
+      ],
+      "dependency_manifests": [
+        "README.md",
+        "en/SUMMARY.md",
+        "zh/SUMMARY.md"
+      ]
+    },
+    "defect_records": {
+      "root": "docs/audit/defects",
+      "required_audit_fields": [
+        "**Severity:**",
+        "**Evidence:**",
+        "**Test evidence:**",
+        "**Data lifecycle:**",
+        "**Gate impact:**",
+        "**Required closure:**"
+      ],
+      "required_closure_fields": [
+        "**Closure evidence:**",
+        "**Coverage evidence:**",
+        "**Data lifecycle evidence:**",
+        "**Gate evidence:**"
+      ],
+      "closed_statuses": [
+        "closed",
+        "resolved",
+        "cleared"
+      ]
+    },
+    "ci_contract": {
+      "test_gates": {
+        "smoke": "test / smoke",
+        "golden_standard": "test / golden-standard"
+      },
+      "submit_readiness": "A styio-dev-doc version is submittable when `test / smoke` and `test / golden-standard` both pass.",
+      "golden_standard_suite": {
+        "required_files": [],
+        "required_markers": {}
+      },
+      "industry_gate_groups": {
+        "docs / maintainer-quality": {
+          "covered_by": "test / golden-standard",
+          "industry_references": [
+            "GitHub rulesets: branch and push rules for repository controls",
+            "OpenSSF Scorecard: CI tests and code review before merge"
+          ],
+          "required_markers": [
+            "gitbook validation",
+            "browser smoke",
+            "English",
+            "Chinese",
+            "structure checker"
+          ]
+        }
+      }
+    }
+  },
+  "privacy_policy": {
+    "privacy_ip_allowlist": [
+      {
+        "service": "github-pages-apex-dns",
+        "ips": [
+          "185.199.108.153",
+          "185.199.109.153",
+          "185.199.110.153",
+          "185.199.111.153",
+          "2606:50c0:8000::153",
+          "2606:50c0:8001::153",
+          "2606:50c0:8002::153",
+          "2606:50c0:8003::153"
+        ],
+        "path_globs": [
+          "docs/dns-and-pages.html",
+          "docs/**/dns-and-pages.html",
+          "modules/default/module.json"
+        ]
+      }
+    ]
+  }
 }

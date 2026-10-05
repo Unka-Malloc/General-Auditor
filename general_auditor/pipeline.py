@@ -172,6 +172,13 @@ def assemble(root, *, api=None, actions=None, event=None):
     consumed = state.get("consumed_artifacts", {})
     latest = {}
     incoming = []
+    run_event = (event or {}).get("workflow_run", {})
+    consumed_runs = state.get("consumed_workflow_runs", {})
+    # One publisher coalesces a burst of independently completed repositories.
+    # Queued events already represented in its checkpoint need no archive walk.
+    if (run_event and run_event["id"] in consumed_runs.values() and previous_inventory == inventory
+            and merge(previous_ledger, [], public_repositories=public)["runs"] == previous_ledger["runs"]):
+        return {"changed": False, "repositories": len(public), "retained_runs": len(previous_ledger["runs"])}
     for artifact in actions.artifacts():
         name = artifact["name"]
         if name.startswith(RESULT_PREFIX) and (name not in latest or (artifact["created_at"], artifact["id"]) > (latest[name]["created_at"], latest[name]["id"])):
@@ -185,7 +192,9 @@ def assemble(root, *, api=None, actions=None, event=None):
                 raise ValueError("Artifact identity differs from its repository result")
             incoming.extend(accept_packet(state, packet, public))
             consumed[artifact["name"]] = artifact["id"]
-    run_event = (event or {}).get("workflow_run", {})
+            run_id = artifact.get("workflow_run", {}).get("id")
+            if type(run_id) is int:
+                consumed_runs[artifact["name"]] = run_id
     failures = []
     if run_event and run_event.get("conclusion") != "success" and not any(row.get("workflow_run", {}).get("id") == run_event["id"] for row in latest.values()):
         name = run_event.get("display_title", "").removeprefix("Audit repository · ")
@@ -199,6 +208,7 @@ def assemble(root, *, api=None, actions=None, event=None):
     state["observations"] = {key: head for key, head in state["observations"].items() if key.split(":", 1)[0] in public}
     state["updated_at"] = {key: value for key, value in state.get("updated_at", {}).items() if key in public}
     state["consumed_artifacts"] = {key: value for key, value in consumed.items() if key in {result_name(name) for name in public}}
+    state["consumed_workflow_runs"] = {key: value for key, value in consumed_runs.items() if key in state["consumed_artifacts"]}
     state["observed_at"] = utc_now()
     write_json(root / "reports/state.json", state)
     write_json(root / "reports/inventory.json", {"schema_version": 1, "repositories": inventory})

@@ -13,5 +13,9 @@
     "Review organization-wide contribution and workflow guidance for repository-specific assumptions.",
     "Keep organization profile metadata public and route contributions to the intended repository only."
   ],
-  "category": "organization-profile"
+  "category": "organization-profile",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default"
+  }
 }

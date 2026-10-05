@@ -1,0 +1,14 @@
+Scoped third-party policy-data attribution
+
+Selected public repository-policy data in `general_auditor/repository_policy.py`
+and centrally maintained SymPolicy profiles was adapted from
+SymPolicy/styio-audit, including repository-specific resource, dependency,
+license and CI contract inventories. The General-Auditor evaluators consume these centrally reviewed declarations
+without importing or executing the source auditor. The source repository distributes
+its work under Apache License 2.0; the required license text is preserved in
+LICENSES/APACHE-2.0.txt. The source repository did not provide a separate
+NOTICE file.
+
+This notice applies only to the identified adapted policy data. It does not
+assign a license to the General-Auditor project as a whole or to other
+independently written components.

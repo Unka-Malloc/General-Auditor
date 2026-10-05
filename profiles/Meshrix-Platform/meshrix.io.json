@@ -13,5 +13,32 @@
     "Review public product and deployment claims against the supported platform behavior.",
     "Check website assets and examples for private endpoints, deployment records or tracking secrets."
   ],
-  "category": "website"
+  "category": "website",
+  "privacy_policy": {
+    "privacy_domain_allowlist": [
+      {
+        "host": "meshrix.io",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      },
+      {
+        "host": "img.shields.io",
+        "path_globs": [
+          "*"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ]
+      }
+    ]
+  },
+  "repository_policy": {
+    "require_workflow": true
+  }
 }

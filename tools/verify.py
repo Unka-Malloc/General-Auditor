@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from general_auditor.config import validate_profile
 from general_auditor.rules import COMPILED
+from general_auditor.detection import rule_catalog
 
 
 def source_and_profiles():
@@ -21,7 +22,7 @@ def source_and_profiles():
         profile = validate_profile(json.loads(path.read_text()), repository)
         if len(profile.get("local_review", [])) < 3:
             raise ValueError("Repository-specific Agent review requirements are missing")
-    ids = [rule.id for rule, _ in COMPILED]
+    ids = [rule.id for rule, _ in COMPILED] + [rule.id for rule in rule_catalog()]
     if len(ids) != len(set(ids)):
         raise ValueError("Rule identities must be unique")
     for required in ("README.md", "docs/README.md", "action.yml", ".github/workflows/audit.yml", ".github/workflows/audit-repository.yml", ".github/workflows/publish-report.yml", ".github/workflows/verify.yml"):

@@ -10,6 +10,8 @@ from .gitdata import GitError, public_repository
 from .report import publish, read_json, write_json
 from .scanner import BlobAnalysis, failed_result, scan, utc_now
 from .rules import selected_rules
+from .detection import rule_catalog
+from .repository_policy import evaluate
 from .governance import finding as governance_finding
 
 
@@ -20,7 +22,7 @@ def plan(candidates, observations, *, force=False):
         if not force and candidate["key"] in observations and previous == candidate["head"]:
             continue
         base = candidate["base"] if force else (previous or candidate["base"])
-        identity = (candidate["repository"], candidate["head"], base)
+        identity = (candidate["repository"], candidate["head"], base, candidate.get("head_ref"), candidate.get("base_ref"))
         if identity not in jobs:
             jobs[identity] = {**candidate, "base": base, "keys": []}
         jobs[identity]["keys"].append(candidate["key"])
@@ -35,10 +37,16 @@ def execute(job, root, *, checkout=None, analysis=None):
             result.pop("error")
             result.update(status="completed", scope="empty-repository", profile_source=source,
                           local_review=profile.get("local_review", []),
-                          rule_ids=[rule.id for rule, _ in selected_rules(profile.get("additional_rule_groups", []))])
+                          rule_ids=[rule.id for rule in rule_catalog()] + [rule.id for rule, _ in selected_rules(profile.get("additional_rule_groups", []))])
+            policy = evaluate(job["repository"], profile, [], lambda path: None,
+                              {"trigger": "empty_repository", "branch_refs": [], "commit_metadata": []})
+            result["findings"] = policy["findings"]
+            result["coverage"]["policy"] = policy["coverage"]
+            result["local_review"] = policy["review_tasks"]
+            result["status"] = "incomplete" if policy["coverage"]["incomplete"] else "policy_failure" if policy["coverage"]["blocking"] else "completed_with_warnings" if result["findings"] else "completed"
             return result
         return scan(checkout, job["repository"], head=job["head"], base=job["base"],
-                    policy_root=root, visibility="public", trigger=job["trigger"], analysis=analysis)
+                    policy_root=root, visibility="public", trigger=job["trigger"], analysis=analysis, event=job)
     except (GitError, ValueError, OSError):
         return failed_result(job["repository"], job["head"], job["trigger"])
 
@@ -72,8 +80,8 @@ def audit_repository(root, row, observations, *, force, api):
         results = [execute(job, root) for job in jobs]
     else:
         try:
-            with public_repository(name, jobs) as checkout, BlobAnalysis(checkout, selected_rules(profile.get("additional_rule_groups", []))) as analysis:
-                results = [execute(job, root, checkout=checkout, analysis=analysis) for job in jobs]
+            with public_repository(name, jobs) as checkout, BlobAnalysis(checkout, selected_rules(profile.get("additional_rule_groups", [])), profile) as analysis:
+                results = [execute(job, root, checkout=checkout, analysis=analysis, event=job) for job in jobs]
         except (GitError, OSError):
             results = [failed_result(name, job["head"], job["trigger"]) for job in jobs]
     for job, result in zip(jobs, results):
@@ -126,4 +134,4 @@ def run(root, *, repository=None, watch=False, workers=8, api=None, on_repositor
                 on_repository(root, name, completed)
             print(name + ": " + str(len(completed)) + " scans completed", flush=True)
     return {"repositories": len(selected), "scans": len(results), "warnings": sum(len(row["findings"]) for row in results),
-            "incomplete": sum(row["status"] == "incomplete" for row in results), "retained_runs": len(ledger["runs"])}
+            "incomplete": sum(row["status"] == "incomplete" for row in results), "policy_failures": sum(row["status"] == "policy_failure" for row in results), "retained_runs": len(ledger["runs"])}

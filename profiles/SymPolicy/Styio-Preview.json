@@ -13,5 +13,9 @@
     "Review parser, evaluator and diagnostic changes against the documented preview language semantics.",
     "Check preview examples and compiler diagnostics for copied local paths or private source content."
   ],
-  "category": "software"
+  "category": "software",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default"
+  }
 }

@@ -13,5 +13,178 @@
     "Review benchmark workload reproducibility, measurement scope and result interpretation.",
     "Use synthetic inputs and remove host identifiers or private execution traces from published results."
   ],
-  "category": "benchmark"
+  "category": "benchmark",
+  "repository_policy": {
+    "require_workflow": true,
+    "hygiene_profile": "styio-default",
+    "resource_contracts": [
+      {
+        "id": "benchmark_evidence",
+        "owner": "Benchmarking",
+        "description": "Owns benchmark execution scripts, performance reports, and regression evidence.",
+        "scope_globs": [
+          "async-runtime/**",
+          "native-cpp/**",
+          "styio-probes/**",
+          "tools/**",
+          "docs/**",
+          "reports/**",
+          "pyproject.toml"
+        ],
+        "copying_policy": "Benchmark reports may summarize measurements but must not copy private runtime data or production traces.",
+        "concurrency_policy": "Benchmark updates must keep inputs, tools, and generated reports associated with a reproducible run.",
+        "nullability_policy": "Missing benchmark scripts or report metadata make performance evidence unauditable.",
+        "cleanup_policy": "Transient benchmark caches and local profiler output must stay untracked unless intentionally archived as reports.",
+        "state_machine": {
+          "source": "Benchmark evidence lifecycle.",
+          "states": [
+            "planned",
+            "measured",
+            "archived"
+          ],
+          "transitions": [
+            {
+              "from": "planned",
+              "to": "measured",
+              "on": "run benchmark harness"
+            },
+            {
+              "from": "measured",
+              "to": "archived",
+              "on": "record report metadata and summary"
+            }
+          ],
+          "invalid_operations": [
+            "publish benchmark numbers without harness metadata",
+            "commit private runtime traces"
+          ]
+        },
+        "required_tests": [
+          "benchmark harness smoke tests and report schema checks"
+        ],
+        "required_gates": [
+          "styio-audit common gate",
+          "benchmark reproducibility gate"
+        ],
+        "audit_risks": [
+          "non-reproducible performance evidence",
+          "private trace leakage",
+          "stale benchmark baselines"
+        ]
+      }
+    ],
+    "project_inventory": {
+      "audit_profile": "benchmark-basic",
+      "technology_stack": [
+        "Python benchmark harnesses",
+        "Native C++ benchmark probes",
+        "Markdown and JSON benchmark reports"
+      ],
+      "internal_components": [
+        "async_runtime_benchmarks",
+        "native_cpp_benchmarks",
+        "styio_probe_suite",
+        "benchmark_reports"
+      ],
+      "open_source_components": [
+        "Python standard library",
+        "pytest-compatible test harnesses",
+        "CSV/JSON report artifacts"
+      ],
+      "dependency_manifests": [
+        "pyproject.toml"
+      ]
+    },
+    "defect_records": {
+      "root": "docs/audit/defects",
+      "required_audit_fields": [
+        "**Severity:**",
+        "**Evidence:**",
+        "**Test evidence:**",
+        "**Data lifecycle:**",
+        "**Gate impact:**",
+        "**Required closure:**"
+      ],
+      "required_closure_fields": [
+        "**Closure evidence:**",
+        "**Coverage evidence:**",
+        "**Data lifecycle evidence:**",
+        "**Gate evidence:**"
+      ],
+      "closed_statuses": [
+        "closed",
+        "resolved",
+        "cleared"
+      ]
+    },
+    "ci_contract": {
+      "test_gates": {
+        "smoke": "test / smoke",
+        "golden_standard": "test / golden-standard"
+      },
+      "submit_readiness": "A styio-benchmark version is submittable when `test / smoke` and `test / golden-standard` both pass.",
+      "golden_standard_suite": {
+        "manifest": "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md",
+        "required_files": [
+          "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md"
+        ],
+        "required_markers": {
+          "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md": [
+            "test / smoke",
+            "test / golden-standard",
+            "submit readiness"
+          ]
+        }
+      },
+      "industry_gate_groups": {
+        "benchmark / measurement-integrity": {
+          "covered_by": "test / golden-standard",
+          "industry_references": [
+            "LLVM Testing Infrastructure Guide: whole-program output and timing comparison",
+            "OpenSSF Scorecard: CI tests before merge"
+          ],
+          "required_markers": [
+            "black-box",
+            "pytest",
+            "byte-compile",
+            "explicit skip",
+            "performance baseline"
+          ]
+        }
+      },
+      "local_gate_profile": {
+        "profile_id": "styio-benchmark-async-blackbox-profile",
+        "manifest": "docs/specs/GOLDEN-STANDARD-TEST-SUITE.md",
+        "covered_by": "test / golden-standard",
+        "required_markers": [
+          "repo-owned adaptation",
+          "async runtime black-box",
+          "pytest",
+          "explicit skip"
+        ]
+      }
+    }
+  },
+  "privacy_policy": {
+    "privacy_ip_allowlist": [
+      {
+        "service": "github-pages-apex-dns",
+        "ips": [
+          "185.199.108.153",
+          "185.199.109.153",
+          "185.199.110.153",
+          "185.199.111.153",
+          "2606:50c0:8000::153",
+          "2606:50c0:8001::153",
+          "2606:50c0:8002::153",
+          "2606:50c0:8003::153"
+        ],
+        "path_globs": [
+          "docs/dns-and-pages.html",
+          "docs/**/dns-and-pages.html",
+          "modules/default/module.json"
+        ]
+      }
+    ]
+  }
 }

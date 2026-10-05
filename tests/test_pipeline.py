@@ -140,6 +140,27 @@ class PersistenceTests(unittest.TestCase):
             self.assertEqual(actions.read.call_count, 2)
             self.assertIn("2 repositories", (Path(directory) / "reports/index.html").read_text())
 
+    def test_completion_burst_coalesces_and_skips_repeated_archive_walks(self):
+        packets = {1: packet("A"), 2: packet("B")}
+        artifacts = [{"id": identity, "name": result_name(item["repository"]), "created_at": item["observed_at"], "workflow_run": {"id": identity}} for identity, item in packets.items()]
+        actions = Mock(restore=lambda root: None)
+        actions.artifacts.side_effect = lambda: iter(artifacts)
+        actions.read.side_effect = lambda row, names: {"result.json": packets[row["id"]]}
+        event = {"workflow_run": {"id": 1, "conclusion": "success"}}
+        api = Mock(repositories=lambda: inventory())
+        with tempfile.TemporaryDirectory() as directory:
+            first = assemble(directory, api=api, actions=actions, event=event)
+            self.assertTrue(first["changed"])
+            self.assertEqual(first["retained_runs"], 2)
+            event["workflow_run"]["id"] = 2
+            second = assemble(directory, api=api, actions=actions, event=event)
+            self.assertFalse(second["changed"])
+            self.assertEqual(actions.artifacts.call_count, 1)
+            self.assertEqual(actions.read.call_count, 2)
+            # Reconciliation still walks durable state when events are missing.
+            assemble(directory, api=api, actions=actions)
+            self.assertEqual(actions.artifacts.call_count, 2)
+
     def test_artifact_discovery_excludes_pr_branches_forks_and_expired_results(self):
         valid = {"id": 1, "expired": False, "workflow_run": {"head_branch": "only", "head_repository_id": 8, "repository_id": 8}}
         rows = [valid, {**valid, "expired": True}, {**valid, "workflow_run": {**valid["workflow_run"], "head_branch": "work/untrusted"}}, {**valid, "workflow_run": {**valid["workflow_run"], "head_repository_id": 9}}]
@@ -148,7 +169,7 @@ class PersistenceTests(unittest.TestCase):
             self.assertEqual(list(actions.artifacts()), [valid])
 
     def test_duplicate_completion_skips_deployment_but_missing_worker_artifact_is_reported(self):
-        actions = Mock(restore=lambda root: None, artifacts=lambda: iter([]))
+        actions = Mock(restore=lambda root: None, artifacts=lambda **kwargs: iter([]))
         api = Mock(repositories=lambda: inventory())
         event = {"workflow_run": {"id": 123, "run_attempt": 1, "display_title": "Audit repository · LicoLand/A", "conclusion": "success", "updated_at": datetime.now(timezone.utc).isoformat()}}
         with tempfile.TemporaryDirectory() as directory:

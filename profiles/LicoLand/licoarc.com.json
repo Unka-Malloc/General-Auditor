@@ -13,5 +13,9 @@
     "Review protocol documentation against the normative LicoArc source and declared version.",
     "Keep protocol examples implementation-neutral and use synthetic identity and key material."
   ],
-  "category": "website"
+  "category": "website",
+  "repository_policy": {
+    "require_workflow": true,
+    "data_profile": "website"
+  }
 }
