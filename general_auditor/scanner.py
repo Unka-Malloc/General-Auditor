@@ -220,7 +220,7 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
             if selected_scope == "range":
                 parent = git(root, "rev-parse", revision + "^", check=False)
                 if parent.returncode == 0:
-                    changed = set(git(root, "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z", parent.stdout.decode().strip(), revision).stdout.decode("utf-8", "replace").split("\0"))
+                    changed = {os.fsdecode(path) for path in git(root, "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z", parent.stdout.decode().strip(), revision).stdout.split(b"\0") if path}
             rows = local_rows if local_rows is not None else tree(root, revision)
             for row in rows:
                 path, mode, kind, oid, size = row[:5]
@@ -332,12 +332,3 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
                         else "completed_with_warnings" if result["findings"] else "completed")
     result["finished_at"] = utc_now()
     return result
-
-
-def failed_result(repository, head, trigger, category="scan_unavailable"):
-    return {"id": str(uuid4()), "repository": repository, "visibility": "public",
-            "head": head, "base": None, "trigger": trigger, "scope": "unavailable",
-            "started_at": utc_now(), "finished_at": utc_now(), "status": "incomplete",
-            "agent_review": "not_performed", "profile_source": "unavailable", "rule_ids": [],
-            "local_review": [], "findings": [], "coverage": {"commits": 0, "text_versions": 0, "bytes": 0, "excluded": []},
-            "error": category}

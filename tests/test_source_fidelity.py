@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -115,3 +116,29 @@ class SourceFidelityTests(unittest.TestCase):
             self.assertEqual(evidence['matched_text'], text[evidence['span']['start']:evidence['span']['end']])
             self.assertIn('\r\n', evidence['context']['text'])
         self.assertIn('\\n', keys[0]['source_evidence']['matched_text'])
+
+    def test_git_byte_filename_survives_range_scan_and_private_handoff(self):
+        from general_auditor.local_store import LocalStore
+        from general_auditor.review import create_review_request, render_review_template
+
+        self.save('/.general-auditor/local/\n', '.gitignore')
+        base = self.commit()
+        def object_command(*args, data=None):
+            return subprocess.check_output(['git', '-C', str(self.root), *args],
+                                           input=data, stderr=subprocess.DEVNULL).decode().strip()
+        blob = object_command('hash-object', '-w', '--stdin', data=b'address="10.20.30.40"\n')
+        raw_path = b'fixture-\xff.txt'
+        tree = object_command('mktree', '-z', data=b'100644 blob ' + blob.encode() + b'\t' + raw_path + b'\0')
+        head = object_command('commit-tree', tree, '-p', base, '-m', 'Synthetic byte name')
+        result = self.run_scan(base=base, head=head, include_source=True)
+        hits = [f for f in result['findings'] if f['rule'] == 'privacy.endpoint.ip-address']
+        self.assertEqual(1, len(hits))
+        self.assertEqual(raw_path, os.fsencode(hits[0]['file']))
+        self.assertEqual(blob, hits[0]['source_evidence']['provenance']['object'])
+        source_free = self.run_scan(base=base, head=head)
+        self.assertEqual(1, sum(f['rule'] == 'privacy.endpoint.ip-address' for f in source_free['findings']))
+        store = LocalStore(self.root)
+        store.write_text('review-handoff.json', render_review_template(create_review_request(result)))
+        identity = store.read_json('review-handoff.json')['receipt_template']['finding_reviews'][0]['identity']
+        self.assertEqual(raw_path, os.fsencode(identity['file']))
+        self.assertEqual('10.20.30.40', identity['source_evidence']['matched_text'])

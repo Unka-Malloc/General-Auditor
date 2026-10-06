@@ -384,7 +384,7 @@ def render_review_template(request: dict[str, Any]) -> str:
         },
         "receipt_template": scaffold,
     }
-    return json.dumps(packet, ensure_ascii=False, indent=2) + "\n"
+    return json.dumps(packet, ensure_ascii=True, indent=2) + "\n"
 
 
 def _validate_additional(item: Any) -> dict[str, Any]:
