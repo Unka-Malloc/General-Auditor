@@ -30,8 +30,8 @@ _SIGNED_QUERY = re.compile(
 )
 _IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")
 _IPV6 = re.compile(
-    r"(?<![0-9A-Fa-f:.])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}"
-    r"(?:::[0-9A-Fa-f:]{0,})?(?![0-9A-Fa-f:.])"
+    r"(?<![\w:.])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}"
+    r"(?:::[0-9A-Fa-f:]{0,})?(?![\w:.])"
 )
 _EMAIL = re.compile(
     r"(?i)(?<![A-Z0-9._%+-])[A-Z0-9._%+-]{1,64}@"
@@ -233,7 +233,7 @@ def _network_candidates(text: str, path: str, profile: Mapping[str, object]) -> 
     for pattern in (_IPV4, _IPV6):
         for match in pattern.finditer(text):
             span = match.span()
-            if pattern is _IPV6 and path.endswith(".rs") and re.fullmatch(r"[A-Za-z]\w*::[A-Za-z]\w*", match.group()):
+            if pattern is _IPV6 and path.endswith((".rs", ".kt", ".kts", ".java", ".cpp", ".cc", ".h", ".hpp")) and re.fullmatch(r"[A-Za-z]\w*::[A-Za-z]\w*", match.group()):
                 before = text[max(0, span[0]-1):span[0]]
                 after = text[span[1]:span[1]+1]
                 if before not in {'"', "'", "["} and after not in {'"', "'", "]"}:

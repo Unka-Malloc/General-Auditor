@@ -1,14 +1,11 @@
 """Read Git objects without checking out or executing target content."""
 
-from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
 import stat
 import subprocess
-import tempfile
 
-from .config import repository_name
 
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
@@ -57,29 +54,13 @@ def unborn_head(root):
     return git(root, "show-ref", "--verify", "--quiet", ref, check=False).returncode == 1
 
 
-@contextmanager
-def public_repository(repository, jobs):
-    repository_name(repository)
-    revisions = sorted({revision for job in jobs for revision in (job["head"], job["base"]) if revision})
-    if not revisions or any(not SHA.fullmatch(revision) for revision in revisions):
-        raise GitError("Expected immutable commit identities")
-    with tempfile.TemporaryDirectory(prefix="general-auditor-") as directory:
-        git(directory, "init", "--bare", "--quiet")
-        git(directory, "remote", "add", "origin", "https://github.com/" + repository + ".git")
-        # One object store and one negotiation for all selected refs in this repository.
-        # Ranges require complete ancestry; pure snapshots need only their trees.
-        depth = [] if any(job["base"] for job in jobs) else ["--depth=1"]
-        git(directory, "fetch", "--quiet", "--no-tags", *depth, "origin", *revisions)
-        yield Path(directory)
-
-
 def tree(root, revision):
     for record in git(root, "ls-tree", "-r", "-z", "-l", revision).stdout.split(b"\0"):
         if not record:
             continue
         metadata, path = record.split(b"\t", 1)
         mode, kind, oid, size = metadata.split()
-        yield (path.decode("utf-8", "replace"), mode.decode(), kind.decode(), oid.decode(),
+        yield (os.fsdecode(path), mode.decode(), kind.decode(), oid.decode(),
                int(size) if size != b"-" else 0)
 
 
@@ -127,7 +108,7 @@ def index_tree(root):
                 raise GitError("The staged index contains unresolved merge entries")
             kind = "commit" if mode == b"160000" else "blob"
             size = sizer.size(oid.decode("ascii")) if kind == "blob" else 0
-            yield (raw_path.decode("utf-8", "replace"), mode.decode("ascii"), kind,
+            yield (os.fsdecode(raw_path), mode.decode("ascii"), kind,
                    oid.decode("ascii"), size)
 
 
@@ -141,7 +122,7 @@ def worktree_tree(root):
         if not raw_path or raw_path in seen:
             continue
         seen.add(raw_path)
-        path = raw_path.decode("utf-8", "replace")
+        path = os.fsdecode(raw_path)
         if path in gitlinks:
             yield (path, *gitlinks[path], raw_path)
             continue
@@ -158,7 +139,7 @@ def worktree_tree(root):
             # Gitlinks and directories are not traversed; binary/external content
             # remains an explicit scanner coverage exclusion.
             continue
-        path = raw_path.decode("utf-8", "replace")
+        path = os.fsdecode(raw_path)
         yield (path, mode, kind, None, size, raw_path)
 
 

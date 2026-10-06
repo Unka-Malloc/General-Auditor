@@ -7,6 +7,7 @@ import tempfile
 import subprocess
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 from tests.test_auditor import git
 from general_auditor.cli import main
 from general_auditor.scanner import scan
@@ -114,7 +115,9 @@ class ScopeTests(unittest.TestCase):
             env = dict(os.environ, AUDITOR_PATH=str(auditor), AUDIT_REPOSITORY='SymPolicy/Synthetic', AUDIT_DIRECTORY=str(self.repo), AUDIT_HEAD=head, AUDIT_BASE=base, AUDIT_SCOPE=scope, AUDIT_OUTPUT=str(output), AUDIT_TRIGGER='push', AUDIT_EVENT=str(event))
             completed = subprocess.run(['bash', '-e'], input=script, text=True, capture_output=True, env=env, cwd=self.repo)
             self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertEqual(json.loads(output.read_text())['scope'], expected)
+            self.assertIn(json.loads(completed.stdout)['status'], {'completed', 'completed_with_warnings'})
+            self.assertFalse(output.exists())
+            self.assertFalse((self.repo / '.general-auditor/local').exists())
 
     def test_removed_historical_data_files_retain_their_format_policy(self):
         base = self.commit()
@@ -193,25 +196,30 @@ class ScopeTests(unittest.TestCase):
         path = self.root / 'profile.json'
         path.write_text(json.dumps(profile))
         with redirect_stdout(io.StringIO()):
-            status = main(['scan', '--directory', str(self.repo), '--repository', 'SymPolicy/Synthetic', '--profile', str(path), '--output', str(self.root / 'result.json')])
+            status = main(['check', '--directory', str(self.repo), '--repository', 'SymPolicy/Synthetic', '--profile', str(path)])
         self.assertEqual(status, 2)
 
     def test_review_cli_preserves_source_result_and_produces_local_html(self):
+        from general_auditor.local_store import LocalStore
+        self.save('.gitignore', '/.general-auditor/local/\n')
         self.save('secret.env', 'PASSWORD="FAKE_REVIEW_MATERIAL_983"\n')
         self.commit()
-        result = self.audit()
-        source = self.root / 'scan.json'
-        source.write_text(json.dumps(result))
-        request = self.root / 'request.json'
-        template = self.root / 'template.json'
-        receipt = self.root / 'receipt.json'
-        receipt.write_text(json.dumps(valid_receipt(result)))
-        output = self.root / 'review.json'
-        html = self.root / 'review.html'
-        with redirect_stdout(io.StringIO()):
-            self.assertEqual(main(['review-request', '--scan', str(source), '--output', str(request), '--template', str(template)]), 0)
-            self.assertEqual(main(['review-complete', '--scan', str(source), '--receipt', str(receipt), '--output', str(output), '--html', str(html)]), 0)
-        self.assertEqual(json.loads(source.read_text())['agent_review'], 'not_performed')
-        self.assertEqual(json.loads(output.read_text())['publication'], 'local_only')
-        self.assertIn('Local contextual review', html.read_text())
-        self.assertNotIn('FAKE_REVIEW_MATERIAL_983', html.read_text())
+        with patch.dict(os.environ, {'CI': 'false', 'GITHUB_ACTIONS': 'false'}), redirect_stdout(io.StringIO()):
+            self.assertEqual(main(['scan', '--directory', str(self.repo), '--repository', 'SymPolicy/Synthetic']), 0)
+            self.assertEqual(main(['review-request', '--directory', str(self.repo)]), 0)
+            store = LocalStore(self.repo)
+            result = store.read_json('scan.json', None)
+            store.write_json('review-receipt.json', valid_receipt(result))
+            self.assertEqual(main(['review-complete', '--directory', str(self.repo)]), 0)
+            saved_receipt = store.read_json('review-receipt.json')
+            self.assertEqual(main(['review-request', '--directory', str(self.repo)]), 0)
+            self.assertEqual(store.read_json('review-receipt.json'), saved_receipt)
+            self.save('ordinary.txt', 'new synthetic candidate')
+            self.commit()
+            self.assertEqual(main(['scan', '--directory', str(self.repo), '--repository', 'SymPolicy/Synthetic']), 0)
+            self.assertEqual(main(['review-request', '--directory', str(self.repo)]), 0)
+            self.assertIn(saved_receipt, store.read_json('receipt-history.json'))
+            self.assertNotEqual(store.read_json('review-receipt.json')['binding'], saved_receipt['binding'])
+        self.assertEqual(store.read_json('scan.json', None)['agent_review'], 'not_performed')
+        self.assertEqual(store.read_json('review.json', None)['publication'], 'local_only')
+        self.assertIn('Local contextual review', (self.repo / '.general-auditor/local/review.html').read_text())

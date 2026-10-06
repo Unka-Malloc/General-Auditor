@@ -1,6 +1,6 @@
 # Repository inventory
 
-The active inventory contains 30 public upstreams. Lico-Auditor and styio-audit have been made private and archived. Each continuing upstream requires General-Auditor CI. The consumer migration has 38 open draft PRs across maintained branch targets; none of those PRs has merged, so default-branch workflow migration is not claimed. Categories are owned by the central profiles. Website, documentation, benchmark and organization-profile categories use the maintainer-owned publishing policy. Other categories retain their existing contribution settings.
+The active inventory contains 30 public upstreams. Lico-Auditor and styio-audit have been made private and archived. Each continuing upstream requires summary-only General-Auditor CI and must ignore `.general-auditor/local/` for private detailed reports. The consumer migration has 38 open draft PRs across maintained branch targets; none of those PRs has merged, so default-branch workflow migration is not claimed. Categories are owned by the central profiles. Website, documentation, benchmark and organization-profile categories use the maintainer-owned publishing policy. Other categories retain their existing contribution settings.
 
 [Access policy](common-policy.md#maintainer-owned-publishing) · [Administration tool](../tools/configure_access.py)
 

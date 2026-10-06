@@ -39,12 +39,11 @@ Run `python3 tools/verify.py` after source review and scoped fixes. Required che
 cover the actual implementation and contribution route. Pattern warnings in
 audited repositories remain advisory.
 
-Audit results are repository-owned Actions artifacts and one Pages HTML report.
-They are not source commits. Scanner and publisher tokens have read-only source
-access. The dispatcher starts repository workers, and a separate notification
-job requests publication after each scan. The notification job has only Actions
-write permission and executes no target source. Pages publication uses its own
-deployment permissions. Source changes are always delivered through PRs.
+Detailed audit output belongs only in ignored repository-local files. CI uses
+summary-only checks without report generation, upload or source-write permission.
+There is no hosted publisher or central scan dispatcher. Preserve historical
+user data locally when retiring a reporting implementation; do not reintroduce
+its runtime as a compatibility path. Source changes remain PR-only.
 
 ## Consolidated sources
 

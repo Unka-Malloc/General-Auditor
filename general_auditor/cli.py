@@ -1,126 +1,130 @@
-"""CLI entry points; advisory matches never cause a failing exit status."""
+"""Separate private local evidence from source-free CI checks."""
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 
-from .config import initialize
-from .github import APIError, GitHub
+from .config import initialize, load_profile
+from .github import APIError
 from .gitdata import GitError
-from .report import read_json, render, render_review, write_json, write_text
-from .runner import run
 from .scanner import scan
 
 
 def parser():
-    root = argparse.ArgumentParser(description="Common and repository-specific advisory audits")
+    root = argparse.ArgumentParser(description="Common and repository-specific audits")
     commands = root.add_subparsers(dest="command", required=True)
-    init = commands.add_parser("init", help="Initialize path-independent configuration without overwriting files")
+    init = commands.add_parser("init", help="Initialize repository configuration and local-report ignore rule")
     init.add_argument("--repository", required=True)
     init.add_argument("--directory", default=".")
     init.add_argument("--central-profile", action="store_true")
-    init.add_argument("--with-workflow", action="store_true", help="Also install the optional repository-local CI template")
-    scan_parser = commands.add_parser("scan", help="Read selected Git or local candidate content; privacy findings are advisory")
-    scan_parser.add_argument("--repository", required=True)
-    scan_parser.add_argument("--directory", default=".")
-    scan_parser.add_argument("--policy-root", default=str(Path(__file__).resolve().parents[1]))
-    scan_parser.add_argument("--profile", help="Explicit local profile; never auto-trust a PR-supplied policy")
-    scan_parser.add_argument("--head", default="HEAD")
-    scan_parser.add_argument("--base")
-    scan_parser.add_argument("--scope", choices=["snapshot", "range", "history", "staged", "worktree"])
-    scan_parser.add_argument("--event", help="GitHub event JSON for contribution context")
-    scan_parser.add_argument("--trigger", default="local")
-    scan_parser.add_argument("--output", required=True)
-    scan_parser.add_argument("--html", help="Optional local HTML report; never published automatically")
-    scan_parser.add_argument("--visibility", choices=["private", "public"], default="private")
-    request = commands.add_parser("review-request", help="Prepare a local contextual review request")
-    request.add_argument("--scan", required=True)
-    request.add_argument("--output", required=True)
-    request.add_argument("--template")
-    complete = commands.add_parser("review-complete", help="Validate a local scan-bound review receipt")
-    complete.add_argument("--scan", required=True)
-    complete.add_argument("--receipt", required=True)
-    complete.add_argument("--output", required=True)
-    complete.add_argument("--html")
-    batch = commands.add_parser("batch", help="Explicitly audit one public repository or all configured organizations")
-    batch.add_argument("--repository", required=True, help="owner/repository or all")
-    batch.add_argument("--root", default=".")
-    watch = commands.add_parser("watch", help="Audit only changed public branch/PR heads and expire old reports")
-    watch.add_argument("--root", default=".")
-    discover = commands.add_parser("discover", help="Initialize missing central profiles for all public repositories")
-    discover.add_argument("--root", default=".")
-    for name, description in (("coordinate", "Dispatch changed repositories independently"), ("audit-repository", "Audit one repository and persist its durable result")):
-        command = commands.add_parser(name, help=description)
-        command.add_argument("--root", default=".")
+    init.add_argument("--with-workflow", action="store_true")
+    for name, help_text in (("scan", "Save exact evidence in the protected local report directory"),
+                            ("check", "Run CI checks without creating reports or emitting source evidence")):
+        command = commands.add_parser(name, help=help_text)
         command.add_argument("--repository", required=True)
-        command.add_argument("--force", action="store_true")
-    assemble = commands.add_parser("assemble", help="Merge completed results and refresh the single report")
-    assemble.add_argument("--root", default=".")
-    assemble.add_argument("--event", help="GitHub publication dispatch event")
+        command.add_argument("--directory", default=".")
+        command.add_argument("--policy-root", default=str(Path(__file__).resolve().parents[1]))
+        command.add_argument("--profile", help="Explicit trusted profile; never trust a PR-supplied policy")
+        command.add_argument("--head", default="HEAD")
+        command.add_argument("--base")
+        command.add_argument("--scope", choices=["snapshot", "range", "history", "staged", "worktree"])
+        command.add_argument("--event", help="GitHub event JSON for contribution context")
+        command.add_argument("--trigger", default="local")
+    for name in ("review-request", "review-complete"):
+        command = commands.add_parser(name, help="Use the repository's protected local contextual review files")
+        command.add_argument("--directory", default=".")
     return root
+
+
+def _read_json(path):
+    with Path(path).open(encoding="utf-8") as source:
+        return json.load(source)
+
+
+def _local_only():
+    if any(os.environ.get(key, "").lower() not in {"", "0", "false", "no"}
+           for key in ("CI", "GITHUB_ACTIONS")):
+        raise ValueError("Private report commands are unavailable in CI")
+
+
+def _exit_status(result):
+    return 1 if result["status"] == "incomplete" else 2 if result["status"] == "policy_failure" else 0
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
+        if args.command in {"scan", "review-request", "review-complete"}:
+            _local_only()
         if args.command == "init":
-            result = {"created": initialize(args.directory, args.repository, profile_only=args.central_profile, with_workflow=args.with_workflow)}
-        elif args.command == "scan":
-            profile = read_json(args.profile, None) if args.profile else None
-            if args.profile and profile is None:
-                raise ValueError("Explicit profile is missing")
-            event = read_json(args.event, None) if args.event else {}
+            created = initialize(args.directory, args.repository, profile_only=args.central_profile,
+                                 with_workflow=args.with_workflow)
+            print(json.dumps({"initialized": len(created)}))
+            return 0
+        if args.command in {"scan", "check"}:
+            # Validate the destination before reading source into a raw local result.
+            if args.command == "scan":
+                from .local_store import LocalStore, save_scan
+                LocalStore(args.directory)
+            profile = _read_json(args.profile) if args.profile else None
+            event = _read_json(args.event) if args.event else {}
             if not isinstance(event, dict):
                 raise ValueError("Invalid event input")
             pull = event.get("pull_request", {})
             metadata = {}
+            if not isinstance(pull, dict) or any(not isinstance(pull.get(key, {}), dict) for key in ("base", "head")):
+                raise ValueError("Invalid pull request metadata")
             if pull:
                 metadata.update(base_ref=pull.get("base", {}).get("ref"), head_ref=pull.get("head", {}).get("ref"))
-            result = scan(args.directory, args.repository, head=args.head, base=args.base, policy_root=args.policy_root,
-                          profile=profile, visibility=args.visibility, scope=args.scope, event=metadata, trigger=args.trigger)
-            write_json(args.output, result)
-            if args.html:
-                write_text(args.html, render({"runs": [result], "generated_at": result["finished_at"]}, local=True))
-            print(json.dumps({"status": result["status"], "findings": len(result["findings"]), "agent_review": result["agent_review"]}))
-            return 1 if result["status"] == "incomplete" else 2 if result["status"] == "policy_failure" else 0
-        elif args.command in {"review-request", "review-complete"}:
-            from .review import create_review_request, render_review_template, complete_review
-            source = read_json(args.scan, None)
-            if args.command == "review-request":
-                result = create_review_request(source)
-                write_json(args.output, result)
-                if args.template:
-                    write_text(args.template, render_review_template(result))
+            result = scan(args.directory, args.repository, head=args.head, base=args.base,
+                          policy_root=args.policy_root, profile=profile, scope=args.scope,
+                          event=metadata, trigger=args.trigger, include_source=args.command == "scan")
+            if args.command == "check":
+                from .governance import check_repository
+                governance = check_repository(args.repository, profile if profile is not None else load_profile(args.policy_root, args.repository)[0], result.get("head"))
+                result["findings"].extend(governance)
+                if any(item.get("judgment") == "unverified" for item in governance):
+                    result["status"] = "incomplete"
+                elif governance and result["status"] == "completed":
+                    result["status"] = "completed_with_warnings"
             else:
-                receipt = read_json(args.receipt, None)
-                result = complete_review(source, receipt)
-                write_json(args.output, result)
-                if args.html:
-                    write_text(args.html, render_review(result))
-            print(json.dumps({"status": "prepared" if args.command == "review-request" else "review_complete"}))
-            return 0
-        elif args.command in {"batch", "watch"}:
-            result = run(args.root, repository=getattr(args, "repository", None), watch=args.command == "watch")
-        elif args.command in {"coordinate", "audit-repository", "assemble"}:
-            from .pipeline import coordinate, audit, assemble
-            if args.command == "coordinate":
-                result = coordinate(args.root, args.repository, force=args.force)
-            elif args.command == "audit-repository":
-                result = audit(args.root, args.repository, force=args.force)
-            elif args.command == "assemble":
-                result = assemble(args.root, event=read_json(args.event, {}) if args.event else {})
-        else:
-            inventory = GitHub().repositories()
-            created = []
-            for row in inventory:
-                created.extend(initialize(args.root, row["repository"], profile_only=True))
-            write_json(Path(args.root) / "reports/inventory.json", {"schema_version": 1, "repositories": inventory})
-            result = {"repositories": len(inventory), "initialized": len(created)}
-        print(json.dumps(result))
-        return 1 if result.get("incomplete") else 2 if result.get("policy_failures") else 0
-    except (APIError, GitError, ValueError, OSError):
-        print("Audit operation could not complete. Check configuration, Git availability and GitHub access; source values are withheld.", file=sys.stderr)
+                save_scan(args.directory, result)
+            print(json.dumps({"status": result["status"], "findings": len(result["findings"]),
+                              "agent_review": result["agent_review"]}))
+            return _exit_status(result)
+        from .local_store import LocalStore
+        from .review import create_review_request, render_review_template, complete_review
+        from .report import render_review
+        store = LocalStore(args.directory)
+        with store.locked():
+            source = store.read_json("scan.json", None)
+            if args.command == "review-request":
+                request = create_review_request(source)
+                store.write_json("review-request.json", request)
+                handoff = render_review_template(request)
+                receipt = store.read_json("review-receipt.json", None)
+                if receipt is not None and not isinstance(receipt, dict):
+                    raise ValueError("Invalid existing receipt")
+                if receipt is None or receipt.get("binding") != request["binding"]:
+                    if receipt is not None:
+                        history = store.read_json("receipt-history.json", [])
+                        if not isinstance(history, list):
+                            raise ValueError("Invalid receipt history")
+                        if receipt not in history:
+                            history.append(receipt)
+                            store.write_json("receipt-history.json", history)
+                    store.write_json("review-receipt.json", json.loads(handoff)["receipt_template"])
+                store.write_text("review-handoff.json", handoff)
+            else:
+                result = complete_review(source, store.read_json("review-receipt.json", None))
+                store.write_json("review.json", result)
+                store.write_text("review.html", render_review(result))
+        print(json.dumps({"status": "prepared" if args.command == "review-request" else "review_complete"}))
+        return 0
+    except (APIError, GitError, ValueError, OSError, TypeError):
+        print("Audit operation could not complete. Check trusted configuration, Git access and local storage permissions; source values are withheld.", file=sys.stderr)
         return 1
 
 

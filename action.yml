@@ -16,9 +16,6 @@ inputs:
   scope:
     description: Optional auto, snapshot, range, history, staged or worktree scope
     default: ''
-  output:
-    description: Redacted JSON result path
-    default: general-auditor-result.json
 runs:
   using: composite
   steps:
@@ -32,10 +29,9 @@ runs:
         AUDIT_BASE: ${{ inputs.base }}
         AUDIT_TRIGGER: ${{ github.event_name }}
         AUDIT_EVENT: ${{ github.event_path }}
-        AUDIT_OUTPUT: ${{ inputs.output }}
       run: |
         if [[ "$AUDIT_SCOPE" == auto ]]; then AUDIT_SCOPE=""; fi
-        args=(scan --repository "$AUDIT_REPOSITORY" --directory "$AUDIT_DIRECTORY" --head "$AUDIT_HEAD" --policy-root "$AUDITOR_PATH" --output "$AUDIT_OUTPUT" --html "$AUDIT_OUTPUT.html" --event "$AUDIT_EVENT" --trigger "$AUDIT_TRIGGER")
+        args=(check --repository "$AUDIT_REPOSITORY" --directory "$AUDIT_DIRECTORY" --head "$AUDIT_HEAD" --policy-root "$AUDITOR_PATH" --event "$AUDIT_EVENT" --trigger "$AUDIT_TRIGGER")
         if [[ -n "$AUDIT_SCOPE" ]]; then
           args+=(--scope "$AUDIT_SCOPE")
         fi

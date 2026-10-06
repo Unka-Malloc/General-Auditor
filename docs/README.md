@@ -3,7 +3,7 @@
 - [Maintaining General-Auditor](contributing.md): designated maintainers, temporary branches and required PR checks.
 - [Common policy](common-policy.md): mandatory contextual review requirements.
 - [Audit coverage and parity](audit-coverage.md): legacy check families, General-Auditor counterparts, tests, and requirement-backed replacements.
-- [Architecture and coverage](architecture.md): scheduling, trust boundaries, persistence and limitations.
+- [Architecture and coverage](architecture.md): local evidence, summary-only CI, persistence and limitations.
 - [Initialization](initialization.md): path-independent configuration, repository policy and optional CI integration.
 - [Policy sources](policy-sources.md): consolidation of Lico-Auditor and styio-audit concepts.
 - [Repository inventory](repositories.md): all organizations and repositories grouped by purpose.

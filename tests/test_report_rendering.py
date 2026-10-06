@@ -11,6 +11,10 @@ from general_auditor.report import unpack_report, render, render_review, _REPORT
 def fixture(count=151):
     findings = [{"file": "src/file.txt", "line": index+1, "commit": "a"*40,
                  "rule": "privacy.example", "evidence": "[source withheld] " + "repeat "*50,
+                 "source_evidence": {"kind": "literal_match", "matched_text": "Synthetic 原文",
+                     "context": {"text": "value = Synthetic 原文", "start_line": index+1, "end_line": index+1},
+                     "span": {"start": 8, "end": 20, "unit": "unicode_codepoint"},
+                     "provenance": {"commit": "a"*40, "scope": "range", "source_kind": "git_blob", "object": "c"*40}},
                  "judgment": "unreviewed", "basis": "Context required", "impact": "Review ownership",
                  "action": "Review locally", "category": "Synthetic", "extra": {"start": index}}
                 for index in range(count)]
@@ -79,7 +83,7 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertEqual([row['judgment'] for row in restored['findings']], ['false_positive', 'confirmed'])
         self.assertEqual(restored['findings'][1]['file'], 'src/other.txt')
         self.assertEqual(scan['findings'][0]['judgment'], 'unreviewed')
-        self.assertIn('Local audit report. No result is published by this command.', html)
+        self.assertIn('Private local audit report.', html)
         self.assertIn('Local contextual review', html)
         self.assertIn('No external service inspected', html)
 
@@ -111,7 +115,10 @@ function requireState(condition,message){if(!condition)throw Error(message);}
 requireState(projects.every(x=>!x.disabled),'projects unavailable after decode');
 requireState(collect(panel,'h2')[0].textContent==='Example/Source','default project incorrect');
 requireState(collect(panel,'tbody')[0].children.length===50,'initial page unbounded');
-requireState(collect(panel,'a')[0].href.endsWith('/blob/'+ 'a'.repeat(40)+'/src/file.txt#L1'),'location lost');
+requireState(collect(panel,'span').some(x=>x.textContent==='src/file.txt:1'),'location lost');
+requireState(collect(panel,'a').length===0,'private path linked externally');
+requireState(collect(panel,'pre').some(x=>x.textContent==='Synthetic 原文'),'original match missing');
+requireState(collect(panel,'pre').some(x=>x.textContent==='value = Synthetic 原文'),'original context missing');
 const ruleButtons=collect(panel,'button').filter(x=>x.dataset.rule);
 requireState(ruleButtons.length===3,'unhit rules displayed');
 const selected=ruleButtons.find(x=>x.dataset.rule==='privacy.other');
@@ -122,7 +129,7 @@ let next=collect(panel,'button').find(x=>x.textContent==='Next');next.listeners.
 requireState(collect(panel,'tbody')[0].children.length===1&&next.disabled,'last selected-rule finding lost');
 const history=collect(panel,'select')[0];requireState(history.children.length===2,'history dropped');
 history.value=history.children[1].value;await history.listeners.change();
-requireState(collect(panel,'a')[0].href.endsWith('/blob/'+ 'b'.repeat(40)+'/src/file.txt#L1001'),'history location not updated');
+requireState(collect(panel,'span').some(x=>x.textContent==='src/file.txt:1001'),'history location not updated');
 requireState(collect(panel,'button').filter(x=>x.dataset.rule).length===2,'rules from previous run retained');
 await projects.find(x=>x.dataset.repository==='Other/Project').listeners.click();
 requireState(collect(panel,'h2')[0].textContent==='Other/Project','project switch failed');
@@ -131,8 +138,7 @@ requireState(collect(panel,'a').length===0,'redacted path became source link');
 await projects.find(x=>x.dataset.repository==='Other/Empty').listeners.click();
 requireState(collect(panel,'tbody').length===0,'empty project retained old details');
 await projects.find(x=>x.dataset.repository==='Other/Settings').listeners.click();
-requireState(collect(panel,'a')[0].href==='https://github.com/Other/Settings/settings','governance location lost');
-requireState(collect(panel,'a')[0].textContent==='GitHub repository settings','governance link label lost');
+requireState(collect(panel,'a').length===0,'private report linked externally');
 const stale=projects[0].listeners.click();await projects.find(x=>x.dataset.repository==='Other/Empty').listeners.click();await stale;
 requireState(collect(panel,'h2')[0].textContent==='Other/Empty'&&collect(panel,'tbody').length===0,'late decode overwrote selected project');
 filter.value='missing';filter.listeners.input.call(filter);requireState(projects.every(x=>x.hidden)&&groups[0].hidden,'sidebar filtering incorrect');

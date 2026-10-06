@@ -1,15 +1,13 @@
 """Local, scan-bound contextual review receipts.
 
 This module validates review content supplied by a local workflow. It cannot
-attest who wrote a receipt or whether an Agent actually ran, and it never stores
-matched source values. CI reports remain unreviewed.
+attest who wrote a receipt or whether an Agent actually ran, and private local receipts may retain exact source evidence. CI remains source-free and unreviewed.
 """
 
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 import re
 from copy import deepcopy
 from typing import Any
@@ -19,30 +17,10 @@ VERDICTS = frozenset({"confirmed", "false_positive", "uncertain"})
 FINDING_IDENTITY_FIELDS = (
     "file", "path", "line", "column", "end_line", "end_column", "commit",
     "rule", "rule_id", "category", "severity", "evidence_class", "start", "end",
-    "evidence", "judgment", "basis", "impact", "action",
+    "evidence", "judgment", "basis", "impact", "action", "source_evidence",
 )
 FINDING_DISPLAY_FIELDS = FINDING_IDENTITY_FIELDS
 _PROFILE_ID_PART = re.compile(r"[^A-Za-z0-9_.-]+")
-_MAX_REVIEW_TEXT = 2000
-_LOCAL_PATH = re.compile(
-    r"(?i)(?:^|[\s(])/(?:Users|home|Volumes|private/var|var/tmp|mnt|root)/[^\s]+|"
-    r"\b[A-Z]:[\\/][^\s]+|"
-    r"\\\\[^\\\s]+\\[^\\\s]+"
-)
-_SENSITIVE_LITERAL = re.compile(
-    r"(?i)-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----|"
-    r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|"
-    r"AKIA[A-Z0-9]{16}|AIza[A-Za-z0-9_-]{30,}|xox[baprs]-[A-Za-z0-9-]{20,}|"
-    r"sk_live_[0-9A-Za-z]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b|"
-    r"\b(?:password|passwd|token|api[_-]?key|secret[_-]?key|client[_-]?secret)\b"
-    r"\s*[:=]\s*[\"'][^\"']{4,}[\"']|"
-    r"\b[a-z][a-z0-9+.-]*://[^\s/:]+:[^\s/@]+@"
-)
-_FORBIDDEN_RECEIPT_KEYS = frozenset({
-    "line_content", "match_text", "matched_text", "matched_value",
-    "original_value", "raw_text", "raw_value", "snippet", "source_line",
-    "source_text", "source_value",
-})
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
@@ -144,7 +122,7 @@ REVIEW_INSTRUCTIONS = """Review only the repository and immutable scope identifi
 
 Automated findings are advisory signals, not leak verdicts. A match can be public protocol material, a schema, a reference, a synthetic fixture, or actual protected information. A scan with no findings is not proof of safety. Review the listed findings exactly once, complete every semantic task, add any contextual findings, and identify concrete unreadable or unresolved items as limitations. Consider authorization, input trust, execution authority, persistence, recovery, dependency provenance and license obligations where the change touches them.
 
-Write only redacted reasoning and repository-relative locations in this receipt. Never copy source lines, exact matched values, credentials, personal or machine identifiers, ciphertext, user records, or private runtime content into the receipt. Do not run untrusted repository scripts, contact endpoints, or validate a credential online. A false-positive judgment applies only to the exact finding and scan identity in this receipt; it does not create a rule, path, or value exception.
+This receipt is a private local file. Retain exact original source evidence and necessary reasoning here only; never copy its sensitive content into chat, logs, CI, uploads or public reports. Use repository-relative locations and bind each observation to actual captured source/version. Do not invent source excerpts or a confirmed verdict from a pattern alone. Do not run untrusted repository scripts, contact endpoints, or validate a credential online. A false-positive judgment applies only to the exact finding and scan identity in this receipt; it does not create a rule, path, or value exception.
 
 Receipt validation checks scope and completeness only. It does not attest Agent identity or prove that every private review duty was performed. CI keeps its own result marked unreviewed."""
 
@@ -156,12 +134,8 @@ def _required_text(value: Any, field: str) -> str:
 
 
 def _receipt_text(value: Any, field: str) -> str:
-    text = _required_text(value, field)
-    if len(text) > _MAX_REVIEW_TEXT:
-        raise ValueError(f"Review text is too long: {field}")
-    if _LOCAL_PATH.search(text) or _SENSITIVE_LITERAL.search(text):
-        raise ValueError(f"Review text must not contain source values or machine paths: {field}")
-    return text
+    _required_text(value, field)
+    return value
 
 
 def _validate_repository(value: Any) -> str:
@@ -226,7 +200,23 @@ def _finding_identity(finding: Any) -> dict[str, Any]:
     if identity.get("rule") and identity.get("rule_id") and identity["rule"] != identity["rule_id"]:
         raise ValueError("Scan finding contains conflicting rule identities")
     for key, value in identity.items():
-        if key in {"line", "column", "end_line", "end_column", "start", "end"}:
+        if key == "source_evidence":
+            if not isinstance(value, dict) or value.get("kind") not in {"literal_match", "derived"}:
+                raise ValueError("Invalid source evidence identity")
+            if value["kind"] == "literal_match":
+                matched = value.get("matched_text")
+                span = value.get("span", {})
+                context = value.get("context", {})
+                if (not isinstance(matched, str) or not isinstance(span, dict)
+                        or type(span.get("start")) is not int or type(span.get("end")) is not int
+                        or span["start"] < 0 or span["end"] - span["start"] != len(matched)
+                        or span.get("unit") != "unicode_codepoint"
+                        or not isinstance(context, dict) or not isinstance(context.get("text"), str)
+                        or matched not in context["text"]):
+                    raise ValueError("Invalid literal source evidence")
+            if not isinstance(value.get("provenance"), dict) or value["provenance"].get("commit") != finding.get("commit"):
+                raise ValueError("Source evidence does not match its finding version")
+        elif key in {"line", "column", "end_line", "end_column", "start", "end"}:
             if value is not None and type(value) is not int:
                 raise ValueError("Invalid scan finding location")
             if value is not None and value < (0 if key in {"start", "end"} else 1):
@@ -240,7 +230,7 @@ def _finding_identity(finding: Any) -> dict[str, Any]:
     parsed = PurePosixPath(path)
     if parsed.is_absolute() or "\\" in path or any(part in {"", ".", ".."} for part in path.split("/")):
         raise ValueError("Scan finding location must be repository relative")
-    return identity
+    return deepcopy(identity)
 
 
 def _tasks(scan: dict[str, Any]) -> list[dict[str, str]]:
@@ -318,25 +308,22 @@ def _review_files(scan: dict[str, Any]) -> list[dict[str, Any]]:
         if not states or not any(states.values()):
             raise ValueError("Review file coverage must identify an inspected version")
         result.append({"path": parsed.as_posix(), "commits": list(commits), "states": dict(states)})
-    _assert_redacted_strings(result)
     return result
 
 
 def _safe_scan_copy(scan: dict[str, Any]) -> dict[str, Any]:
     fields = (
         "visibility", "started_at", "finished_at", "trigger", "agent_review",
-        "status", "coverage", "local_review", "semantic_review",
+        "status", "coverage", "local_review", "semantic_review", "source_mode",
     )
     result = _binding(scan)
     result.update({key: deepcopy(scan[key]) for key in fields if key in scan})
     result["findings"] = [item["signal"] | item["identity"] for item in _scan_findings(scan)]
-    _reject_source_payload(result)
-    _assert_redacted_strings(result)
     return result
 
 
 def create_review_request(scan: dict[str, Any]) -> dict[str, Any]:
-    """Build the redacted local Agent handoff from one actual scan result."""
+    """Build the private local Agent handoff from one actual scan result."""
     tasks = _tasks(scan)
     binding = _binding(scan)
     # Bind receipts to the exact centrally selected semantic duties as well as
@@ -351,8 +338,6 @@ def create_review_request(scan: dict[str, Any]) -> dict[str, Any]:
         "coverage": deepcopy(scan.get("coverage", {})),
         "files": _review_files(scan),
     }
-    _reject_source_payload(request)
-    _assert_redacted_strings(request)
     return request
 
 
@@ -399,38 +384,13 @@ def render_review_template(request: dict[str, Any]) -> str:
         },
         "receipt_template": scaffold,
     }
-    _reject_source_payload(packet)
-    _assert_redacted_strings(packet)
-    return json.dumps(packet, ensure_ascii=False, indent=2) + "\n"
-
-
-def _reject_source_payload(value: Any) -> None:
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if not isinstance(key, str) or key.casefold() in _FORBIDDEN_RECEIPT_KEYS:
-                raise ValueError("Receipt contains a prohibited source-evidence field")
-            _reject_source_payload(child)
-    elif isinstance(value, list):
-        for child in value:
-            _reject_source_payload(child)
-
-
-def _assert_redacted_strings(value: Any) -> None:
-    """Reject common high-confidence secrets and machine paths in receipt text."""
-    if isinstance(value, dict):
-        for child in value.values():
-            _assert_redacted_strings(child)
-    elif isinstance(value, list):
-        for child in value:
-            _assert_redacted_strings(child)
-    elif isinstance(value, str) and (_LOCAL_PATH.search(value) or _SENSITIVE_LITERAL.search(value)):
-        raise ValueError("Review receipt contains a sensitive literal or machine path")
+    return json.dumps(packet, ensure_ascii=True, indent=2) + "\n"
 
 
 def _validate_additional(item: Any) -> dict[str, Any]:
     fields = {"path", "line", "commit", "category", "rule", "verdict", "basis", "impact", "action"}
     if not isinstance(item, dict) or set(item) != fields:
-        raise ValueError("Invalid additional finding; include redacted location and judgment fields only")
+        raise ValueError("Invalid additional finding; include location and judgment fields only")
     path = _required_text(item.get("path"), "additional finding path")
     parsed = PurePosixPath(path)
     if parsed.is_absolute() or "\\" in path or any(part in {"", ".", ".."} for part in path.split("/")):
@@ -456,12 +416,10 @@ def _validate_additional(item: Any) -> dict[str, Any]:
 
 
 def validate_review(scan: dict[str, Any], review: dict[str, Any]) -> None:
-    """Reject stale, incomplete, or source-bearing local review receipts."""
+    """Reject stale, incomplete or differently bound local review receipts."""
     request = create_review_request(scan)
     if not isinstance(review, dict):
         raise ValueError("Invalid local review receipt")
-    _reject_source_payload(review)
-    _assert_redacted_strings(review)
     allowed = {
         "schema", "binding", "summary", "finding_reviews", "semantic_reviews",
         "additional_findings", "limitations",
@@ -556,17 +514,8 @@ def complete_review(scan: dict[str, Any], review: dict[str, Any]) -> dict[str, A
     }
 
 
-def write_local_receipt(path: str | Path, scan: dict[str, Any], receipt: dict[str, Any]) -> None:
-    """Validate and write one receipt as a private local file."""
+def write_local_receipt(root, scan: dict[str, Any], receipt: dict[str, Any]) -> None:
+    """Validate and save a receipt only through the fixed private local store."""
+    from .local_store import LocalStore
     validate_review(scan, receipt)
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    descriptor = os.open(destination, flags, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-        if os.name == "posix":
-            os.chmod(destination, 0o600)
-        json.dump(receipt, stream, ensure_ascii=False, indent=2)
-        stream.write("\n")
+    LocalStore(root).write_json("review-receipt.json", receipt)

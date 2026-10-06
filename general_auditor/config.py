@@ -76,6 +76,11 @@ def load_profile(root, repository):
 def initialize(root, repository, *, profile_only=False, with_workflow=False):
     """Create missing files only. No required source/docs layout, no overwrites."""
     root = Path(root)
+    if not profile_only and root.exists():
+        from .gitdata import git
+        location = git(root, "rev-parse", "--show-toplevel", check=False)
+        if location.returncode == 0:
+            root = Path(location.stdout.decode().strip())
     owner, name = repository.split("/", 1)
     destination = root / ("profiles/" + owner + "/" + name + ".json" if profile_only else ".general-auditor/config.json")
     repository_name(repository)
@@ -87,6 +92,14 @@ def initialize(root, repository, *, profile_only=False, with_workflow=False):
         destination.write_text(json.dumps(default_profile(repository), indent=2) + "\n")
         created.append(destination.relative_to(root).as_posix())
     if not profile_only:
+        ignore = root / ".gitignore"
+        if ignore.is_symlink():
+            raise ValueError("Repository ignore file must not be a symbolic link")
+        text = ignore.read_text() if ignore.exists() else ""
+        rule = "/.general-auditor/local/"
+        if rule not in text.splitlines():
+            ignore.write_text(text + ("\n" if text and not text.endswith("\n") else "") + rule + "\n")
+            created.append(".gitignore")
         guide = destination.parent / "README.md"
         if not guide.exists():
             guide.write_text(files("general_auditor").joinpath("templates/LOCAL-REVIEW.md").read_text())

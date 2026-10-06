@@ -25,3 +25,6 @@ Thumbs.db
 *.swp
 *.swo
 node_modules/
+
+# Private audit evidence belongs only to this checkout.
+/.general-auditor/local/
