@@ -8,7 +8,8 @@ import subprocess
 import uuid
 
 NAMES = frozenset({'scan.json', 'history.json', 'index.html', 'review-request.json',
-                   'review-handoff.json', 'review-receipt.json', 'receipt-history.json', 'review.json', 'review.html'})
+                   'review-handoff.json', 'review-receipt.json', 'receipt-history.json', 'review.json', 'review.html',
+                   'triage.json', 'triage.html'})
 
 
 class LocalStore:

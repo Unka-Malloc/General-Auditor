@@ -35,6 +35,11 @@ def parser():
     for name in ("review-request", "review-complete"):
         command = commands.add_parser(name, help="Use the repository's protected local contextual review files")
         command.add_argument("--directory", default=".")
+    triage = commands.add_parser("triage", help="Classify one saved local scan deterministically, without a model")
+    triage.add_argument("--directory", default=".")
+    fleet = commands.add_parser("fleet", help="Triage every repository below a root and write one closing report")
+    fleet.add_argument("--root", required=True, help="Audit root containing <Organization>/<Repository> checkouts")
+    fleet.add_argument("--output", help="Report path; must stay outside a Git working tree")
     return root
 
 
@@ -56,7 +61,7 @@ def _exit_status(result):
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        if args.command in {"scan", "review-request", "review-complete"}:
+        if args.command in {"scan", "review-request", "review-complete", "triage", "fleet"}:
             _local_only()
         if args.command == "init":
             created = initialize(args.directory, args.repository, profile_only=args.central_profile,
@@ -97,6 +102,32 @@ def main(argv=None):
         from .local_store import LocalStore
         from .review import create_review_request, render_review_template, complete_review
         from .report import render_review
+        if args.command == "fleet":
+            from .fleet import run as run_fleet
+            result = run_fleet(args.root, args.output)
+            totals = result["totals"]
+            print(json.dumps({"status": "fleet_report", "report": result["report"],
+                              "repositories": len(result["projects"]),
+                              "findings": totals.get("findings", 0),
+                              "decisions": totals.get("decisions", 0),
+                              "decision_groups": totals.get("decision_groups", 0),
+                              "decision_distinct_values": totals.get("decision_distinct_values", 0),
+                              "contracts": totals.get("contracts", 0),
+                              "cleared": totals.get("cleared", 0)}))
+            return 0
+        if args.command == "triage":
+            from .triage import render_triage, triage
+            store = LocalStore(args.directory)
+            with store.locked():
+                result = triage(store.read_json("scan.json", None))
+                store.write_json("triage.json", result)
+                store.write_text("triage.html", render_triage(result))
+            print(json.dumps({"status": "triaged", "findings": result["totals"]["findings"],
+                              "decisions": result["totals"]["decisions"],
+                              "contracts": result["totals"]["contracts"],
+                              "cleared": result["totals"]["cleared"],
+                              "decision_groups": result["totals"]["decision_groups"]}))
+            return 0
         store = LocalStore(args.directory)
         with store.locked():
             source = store.read_json("scan.json", None)
