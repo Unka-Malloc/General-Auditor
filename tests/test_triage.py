@@ -71,6 +71,9 @@ def synthetic_scan(repository="SymPolicy/Styio"):
             finding("privacy.business.assignment", "src/analytics.dart", "tenant_acme_prod_2026"),
             finding("privacy.other.custom", "src/queue.py", "prod-cluster-7"),
             finding("repository.general-auditor-workflow", ".github/workflows/", category="Repository contract"),
+            finding("privacy.endpoint.private-host", "src/client.js", "config.endpoint"),
+            finding("privacy.backend.metadata", "src/schema.py", "tenant_id"),
+            finding("privacy.personal.record-field", "src/session.dart", 'data["session_key"]'),
         ],
     }
 
@@ -82,9 +85,10 @@ class TriageClassificationTests(unittest.TestCase):
 
     def reason(self, result, index):
         for group in result["groups"]:
-            for sample in group["samples"]:
-                if sample["index"] == index:
-                    return group["disposition"], group["reason"]
+            for value in group["values"]:
+                for location in value["locations"]:
+                    if location["index"] == index:
+                        return group["disposition"], group["reason"]
         raise AssertionError(f"finding {index} was not classified")
 
     def test_every_finding_gets_one_conservative_class(self):
@@ -108,6 +112,9 @@ class TriageClassificationTests(unittest.TestCase):
             15: ("decision", "decision-personal-or-backend"),
             16: ("decision", "decision-unclassified"),
             17: ("contract", "contract-declared"),
+            18: ("cleared", "cleared-dotted-code-name"),
+            19: ("cleared", "cleared-field-identifier"),
+            20: ("cleared", "cleared-code-expression"),
         }
         for index, want in expected.items():
             self.assertEqual(self.reason(result, index), want, f"finding {index}")
@@ -116,23 +123,40 @@ class TriageClassificationTests(unittest.TestCase):
         self.assertEqual(totals["decisions"] + totals["contracts"] + totals["cleared"], totals["findings"])
         self.assertEqual(totals["decisions"], 6)
         self.assertEqual(totals["contracts"], 1)
-        self.assertEqual(totals["cleared"], 11)
-        self.assertTrue(set(result["groups"][0]).issuperset({"disposition", "reason", "count", "samples"}))
+        self.assertEqual(totals["cleared"], 14)
+        self.assertEqual(result["groups"][0]["disposition"], "decision")
         self.assertTrue(all(group["reason"] in REASONS for group in result["groups"]))
 
-    def test_decisions_keep_every_occurrence_and_cleared_groups_keep_samples(self):
+    def test_credentials_and_identifiers_never_clear_as_code(self):
         scan = synthetic_scan()
+        # A quoted short password and a quoted identity value are literals, not expressions.
         scan["findings"].extend([
-            finding("privacy.local.machine-path", "README.md", "/Users/unka/DevSpace/other",
-                    line_text="cd /Users/unka/DevSpace/other"),
-        ] * 4)
+            finding("privacy.credential.binding", "src/auth.py", '"hunter2"'),
+            finding("privacy.personal.identifier", "src/user.py", '"123456789"'),
+        ])
+        result = triage(scan)
+        self.assertEqual(self.reason(result, 21), ("decision", "decision-credential"))
+        self.assertEqual(self.reason(result, 22), ("decision", "decision-personal-or-backend"))
+
+    def test_decision_groups_keep_distinct_values_and_cleared_groups_are_capped(self):
+        scan = synthetic_scan()
+        same = "/Users/unka/DevSpace/other"
+        scan["findings"].extend(
+            [finding("privacy.local.machine-path", "README.md", same, line_text="cd " + same)] * 4)
+        scan["findings"].append(
+            finding("privacy.local.machine-path", "README.md", "/Users/unka/elsewhere",
+                    line_text="cd /Users/unka/elsewhere"))
         result = triage(scan)
         home = [group for group in result["groups"] if group["reason"] == "decision-home-path"]
         self.assertEqual(len(home), 1)
-        self.assertEqual(home[0]["count"], 5)
-        self.assertEqual(len(home[0]["samples"]), 5)
+        # The base scan already carries one home path, so three distinct values remain.
+        self.assertEqual(home[0]["count"], 6)
+        self.assertEqual(home[0]["distinct"], 3)
+        self.assertEqual(home[0]["values_shown"], 3)
+        self.assertEqual(home[0]["values"][0]["occurrences"], 4)
         cleared = [group for group in result["groups"] if group["disposition"] == "cleared"]
-        self.assertTrue(all(len(group["samples"]) <= 5 for group in cleared))
+        self.assertTrue(all(group["values_shown"] <= 8 for group in cleared))
+        self.assertTrue(all(group["values_shown"] <= group["distinct"] for group in result["groups"]))
 
     def test_triage_is_deterministic_and_needs_no_model(self):
         scan = synthetic_scan()

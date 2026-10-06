@@ -3,19 +3,19 @@
 Triage answers the question a reader actually has - what in this scan needs a
 decision, and what does a stated rule already explain - without calling a model
 and without judging privacy. Every finding receives exactly one deterministic
-class. Classification is deliberately conservative: a finding is reported as a
-decision unless a specific, auditable rule explains it.
+class, and every class keeps a named reason so the explanation itself can be
+challenged.
 
-Triage never replaces contextual review and never declares a repository safe.
-It bounds review: `decision` groups are what a reviewer or maintainer must read,
-and `cleared` groups carry the rule that explained them so the explanation
-itself can be challenged.
+Classification is deliberately conservative: a finding is reported as a decision
+unless a specific, auditable rule explains it. Triage never replaces contextual
+review and never declares a repository safe. It bounds review: the decision
+groups are what a reader must judge, and a cleared group means a stated rule
+applied, not that the underlying content was reviewed.
 """
 
 from __future__ import annotations
 
 import ipaddress
-import json
 import os
 import re
 from datetime import datetime, timezone
@@ -23,43 +23,39 @@ from html import escape
 
 SCHEMA = "general-auditor-local-triage"
 
-# Rule families whose findings locate a declared contract rather than a value.
+# Rules whose findings locate a declared contract rather than a value.
 CONTRACT_PREFIXES = ("repository.", "workflow.", "contribution.", "governance.", "extension.")
 
+# How many distinct matched values one group shows. Decisions show the full
+# distinct set up to this cap; cleared groups show only a spot-check sample.
+MAX_DECISION_VALUES = 60
+MAX_CLEARED_VALUES = 8
+MAX_LOCATIONS = 4
+LINE_WINDOW = 240
+
 REASONS = {
-    # Cleared: a stated deterministic rule explains the finding.
     "cleared-license-text": "The file is part of the project's license or notice text.",
-    "cleared-placeholder": "Every matched value is an explicit placeholder or a generator template.",
     "cleared-reserved-reference": "Every matched host or address is reserved for documentation, testing or loopback use.",
     "cleared-public-reference": "Every matched value is a well-known public standards, vendor or documentation reference.",
     "cleared-repository-identity": "The matched value carries the repository's or organization's own published identity.",
+    "cleared-placeholder": "Every matched value is an explicit placeholder or a generator template.",
     "cleared-escape-artifact": "The matched text is a backslash-escaped code fragment, not a literal path or address.",
     "cleared-checksum-fragment": "The matched digits are a fragment of a longer checksum or object identifier on the same line.",
     "cleared-system-path": "The matched path is a standard system location with no personal account component.",
     "cleared-container-account": "The matched account is a container or service account declared by the repository.",
     "cleared-scratch-path": "The matched path is a build, cache or scratch location with no personal account component.",
     "cleared-synthetic-literal": "The matched value is repeated-byte or low-entropy synthetic content.",
-    # Decisions: report with the actual values so a reader can judge them.
+    "cleared-dotted-code-name": "The matched value is a dotted code name whose final label is not a registered top-level domain, so it is a member expression rather than a host.",
+    "cleared-code-expression": "The matched text is a code expression listing fields or calls, not a literal value.",
+    "cleared-field-identifier": "The matched text is a bare field or identifier token, not a stored literal.",
     "decision-home-path": "An absolute path contains a user home directory with a personal account name.",
     "decision-machine-temp": "The matched value identifies a specific machine's temporary directory.",
-    "decision-credential": "A credential, key or token rule matched a value that is not an explicit placeholder.",
-    "decision-endpoint": "An endpoint rule matched a host that is not reserved or a known public reference.",
+    "decision-credential": "A credential, key or token rule matched a value that is not an explicit placeholder and not a code expression.",
+    "decision-endpoint": "An endpoint rule matched a host that is not reserved, not a known public reference, and not a dotted code name.",
     "decision-personal-or-backend": "A personal-data or backend-data rule matched a literal value.",
     "decision-unclassified": "No deterministic rule explains this finding; it needs a contextual verdict.",
     "contract-declared": "A declared repository, workflow or contribution contract finding with no matched literal.",
 }
-
-STRUCTURAL_CATEGORIES = frozenset({
-    "Repository contract",
-    "Documentation governance",
-    "Workflow governance",
-    "Repository hygiene",
-    "Data-file policy",
-    "Branch metadata",
-    "Dependency governance",
-    "License evidence",
-    "CI gate contract",
-})
 
 PLACEHOLDER = re.compile(
     r"(?i)(example|sample|dummy|placeholder|redacted|secret[-_ ]?here|your[-_ ]|change[-_ ]?me|"
@@ -86,6 +82,19 @@ PUBLIC_REFERENCE_HOSTS = frozenset({
     "arxiv.org", "opencontainers.org", "spdx.org", "semver.org", "keepachangelog.com",
 })
 
+TOP_LEVEL_DOMAINS = frozenset({
+    "com", "org", "net", "edu", "gov", "mil", "int", "io", "ai", "dev", "app", "cloud",
+    "co", "uk", "de", "fr", "jp", "cn", "ru", "br", "in", "au", "ca", "nl", "se", "no",
+    "fi", "dk", "it", "es", "ch", "at", "be", "pl", "cz", "pt", "gr", "ie", "il", "kr",
+    "sg", "hk", "tw", "mx", "ar", "cl", "za", "nz", "tr", "ua", "vn", "th", "id", "my",
+    "ph", "pk", "eg", "sa", "ae", "info", "biz", "name", "pro", "mobi", "xyz", "online",
+    "site", "tech", "store", "blog", "wiki", "news", "live", "life", "world", "space",
+    "fun", "team", "group", "digital", "network", "systems", "solutions", "software",
+    "codes", "tools", "works", "zone", "land", "page", "host", "website", "press", "art",
+    "media", "studio", "design", "email", "chat", "social", "community", "academy",
+    "school", "institute", "foundation", "sh", "cc", "tv", "me", "gg", "to", "ly", "rs",
+})
+
 DOCUMENTATION_NETWORKS = tuple(ipaddress.ip_network(value) for value in (
     "192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "2001:db8::/32",
 ))
@@ -95,26 +104,32 @@ SYSTEM_ROOTS = ("/usr/", "/etc/", "/var/", "/opt/", "/bin/", "/sbin/", "/lib/", 
                 "c:\\program files", "c:\\programdata\\")
 
 SCRATCH_ROOTS = ("/tmp/", "/var/tmp/", "/private/tmp/", "/build/", "/workspace/",
-                 "/app/", "/home/app/", "./build/", "./target/", "./dist/", "./.cache/")
+                 "/app/", "/home/app/", "~/library/caches/", "./build/", "./target/",
+                 "./dist/", "./.cache/", "node_modules/")
 
 GENERIC_ACCOUNTS = frozenset({
     "app", "apps", "node", "nodejs", "root", "user", "users", "runner", "builder", "build",
     "ci", "jenkins", "github", "gitlab", "www", "www-data", "nginx", "docker", "postgres",
     "mysql", "redis", "admin", "administrator", "service", "svc", "guest", "test", "tester",
-    "developer", "dev", "sandbox", "container", "worker", "guest-user", "vscode",
+    "developer", "dev", "sandbox", "container", "worker", "vscode",
 })
 
 HOME_ROOTS = re.compile(r"(?i)(^|[\s\"'=(])((/users/|/home/|c:\\users\\|/var/folders/)([^/\s\"'<>)]+))")
+IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,60}$")
+MEMBER_NAME = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)+$")
+EXPRESSION = re.compile(r"""[(){}\[\]'"=;,]|\s|::|->""")
+HEX_RUN = re.compile(r"[0-9a-fA-F]{32,}")
+ESCAPED_FRAGMENT = re.compile(r"\\[/.\\]")
+LOW_ENTROPY = re.compile(r"^(.)\1{3,}$|^[0-9]{1,}$|^[a-zA-Z]{1,3}$")
 
 CREDENTIAL_FAMILY = ("credential", "key.", "key-", "token", "jose")
 ENDPOINT_FAMILY = ("endpoint", "host-binding", "uri-userinfo", "domain")
 PERSONAL_FAMILY = ("personal", "business", "backend", "local.", "runtime")
 
-HEX_RUN = re.compile(r"[0-9a-fA-F]{32,}")
-ESCAPED_FRAGMENT = re.compile(r"\\[/.\\]")
-LOW_ENTROPY = re.compile(r"^(.)\1{3,}$|^[0-9]{1,}$|^[a-zA-Z]{1,3}$")
-
-LINE_WINDOW = 240
+# Only these rules clear as a code expression. Credential, key, token and
+# identifier rules keep expression-shaped values as decisions, because a quoted
+# short literal is also expression-shaped.
+EXPRESSION_CLEARABLE = frozenset({"privacy.backend.metadata", "privacy.personal.record-field"})
 
 
 def _rule_family(rule: str) -> str:
@@ -142,7 +157,7 @@ def _path_class(path: str) -> str:
         return "test"
     if lowered.endswith((".json", ".yaml", ".yml", ".toml", ".ini", ".env", ".cddl", ".schema")):
         return "data"
-    if lowered.endswith((".lock",)) or "node_modules/" in lowered or "vendor/" in lowered or "third_party/" in lowered:
+    if lowered.endswith(".lock") or any(part in lowered for part in ("node_modules/", "vendor/", "third_party/")):
         return "vendor"
     if any(part in lowered for part in ("generated", "dist/", "build/", "_book/", ".min.")):
         return "generated"
@@ -171,9 +186,8 @@ def _line_text(finding: dict) -> str:
     context = evidence.get("context")
     if not isinstance(context, dict) or not isinstance(context.get("text"), str):
         return ""
-    start_line = context.get("start_line")
-    line = finding.get("line")
     text = context["text"]
+    start_line, line = context.get("start_line"), finding.get("line")
     if isinstance(start_line, int) and isinstance(line, int):
         rows = text.split("\n")
         offset = line - start_line
@@ -191,13 +205,14 @@ def _line_text(finding: dict) -> str:
 def _host_of(value: str) -> str | None:
     match = re.match(r"(?i)^[a-z][a-z0-9+.-]*://([^/?#\s]+)", value)
     authority = match.group(1) if match else None
-    if authority is None and re.fullmatch(r"[A-Za-z0-9.-]+\.[A-Za-z]{2,}", value):
+    if authority is None and re.fullmatch(r"[A-Za-z0-9.-]+\.[A-Za-z]{2,24}", value):
         authority = value
     if authority is None:
         return None
     authority = authority.rsplit("@", 1)[-1]
-    host = authority.rsplit(":", 1)[0] if ":" in authority and not authority.count(":") > 1 else authority
-    return host.strip("[]").lower() or None
+    if authority.count(":") == 1:
+        authority = authority.rsplit(":", 1)[0]
+    return authority.strip("[]").lower() or None
 
 
 def _reserved_host(host: str) -> bool:
@@ -226,6 +241,14 @@ def _reserved_address(value: str) -> bool | None:
     return any(address in network for network in DOCUMENTATION_NETWORKS if address.version == network.version)
 
 
+def _dotted_code_name(value: str) -> bool:
+    """A dotted name that looks like a host only because of its shape."""
+    text = value.strip()
+    if "://" in text or not MEMBER_NAME.fullmatch(text):
+        return False
+    return text.rsplit(".", 1)[-1].lower() not in TOP_LEVEL_DOMAINS
+
+
 def _identity_tokens(repository: str) -> set[str]:
     organization, _, name = repository.partition("/")
     tokens = set()
@@ -241,8 +264,7 @@ def _classify(finding: dict, repository: str, values: list[str], identity: set[s
     family = _rule_family(rule)
     if family == "contract":
         return "contract", "contract-declared"
-    path = finding.get("file") or finding.get("path") or ""
-    path_class = _path_class(path)
+    path_class = _path_class(finding.get("file") or finding.get("path") or "")
     line = _line_text(finding)
     joined = " ".join(values)
 
@@ -271,15 +293,23 @@ def _classify(finding: dict, repository: str, values: list[str], identity: set[s
         return "decision", "decision-home-path"
     if any(root in lowered for root in SYSTEM_ROOTS) and "/users/" not in lowered and "/home/" not in lowered:
         return "cleared", "cleared-system-path"
-    if re.search(r"(?i)/home/([^/\s\"'<>)]+)", lowered):
-        account = re.search(r"(?i)/home/([^/\s\"'<>)]+)", lowered).group(1)
-        if account in GENERIC_ACCOUNTS:
+    account = re.search(r"(?i)/home/([^/\s\"'<>)]+)", lowered)
+    if account:
+        if account.group(1) in GENERIC_ACCOUNTS:
             return "cleared", "cleared-container-account"
         return "decision", "decision-home-path"
     if any(root in lowered for root in SCRATCH_ROOTS):
         return "cleared", "cleared-scratch-path"
     if values and all(LOW_ENTROPY.match(value.strip()) for value in values):
         return "cleared", "cleared-synthetic-literal"
+    if family == "endpoint" and values and all(_dotted_code_name(value) for value in values):
+        return "cleared", "cleared-dotted-code-name"
+    if values and (family == "endpoint" or rule in EXPRESSION_CLEARABLE) and all(
+            "://" not in value and _host_of(value) is None and EXPRESSION.search(value) for value in values):
+        return "cleared", "cleared-code-expression"
+    if rule in {"privacy.backend.metadata", "privacy.personal.record-field"} and values and all(
+            IDENTIFIER.match(value.strip()) and not re.search(r"\d{4,}", value) for value in values):
+        return "cleared", "cleared-field-identifier"
 
     if family == "credential":
         return "decision", "decision-credential"
@@ -291,7 +321,7 @@ def _classify(finding: dict, repository: str, values: list[str], identity: set[s
 
 
 def triage(scan: dict) -> dict:
-    """Classify every finding of one saved scan. Pure function, no model, no I/O."""
+    """Classify every finding of one saved scan. Pure function: no model, no I/O."""
     if not isinstance(scan, dict) or not isinstance(scan.get("findings"), list):
         raise ValueError("A saved local scan is required")
     repository = scan.get("repository") or ""
@@ -301,33 +331,46 @@ def triage(scan: dict) -> dict:
         values = _matched_values(finding)
         disposition, reason = _classify(finding, repository, values, identity)
         path = finding.get("file") or finding.get("path") or ""
-        key = (disposition, reason, finding.get("rule") or "", _path_class(path))
+        path_class = _path_class(path)
+        key = (disposition, reason, finding.get("rule") or "", path_class)
         group = groups.setdefault(key, {
             "disposition": disposition,
             "reason": reason,
             "reason_text": REASONS.get(reason, ""),
             "rule": finding.get("rule") or "",
             "category": finding.get("category") or "",
-            "path_class": _path_class(path),
+            "path_class": path_class,
             "count": 0,
             "files": set(),
-            "samples": [],
+            "values": {},
         })
         group["count"] += 1
         group["files"].add(path)
-        if disposition != "cleared" or len(group["samples"]) < 5:
-            group["samples"].append({
-                "index": index,
+        matched = tuple(value[:200] for value in values)
+        entry = group["values"].setdefault(matched, {
+            "matched": list(matched),
+            "occurrences": 0,
+            "locations": [],
+            "source_line": _line_text(finding),
+        })
+        entry["occurrences"] += 1
+        if len(entry["locations"]) < MAX_LOCATIONS:
+            entry["locations"].append({
                 "file": path,
                 "line": finding.get("line"),
                 "commit": (finding.get("commit") or "")[:12],
-                "matched": [value[:200] for value in values],
-                "source_line": _line_text(finding),
+                "index": index,
             })
+
     ordered = sorted(groups.values(), key=lambda row: (
         {"decision": 0, "contract": 1, "cleared": 2}[row["disposition"]], -row["count"], row["rule"]))
     for row in ordered:
         row["files"] = len(row["files"])
+        cap = MAX_CLEARED_VALUES if row["disposition"] == "cleared" else MAX_DECISION_VALUES
+        values = sorted(row["values"].values(), key=lambda item: (-item["occurrences"], item["matched"]))
+        row["distinct"] = len(values)
+        row["values"] = values[:cap]
+        row["values_shown"] = len(row["values"])
     totals = {
         "findings": len(scan["findings"]),
         "decisions": sum(row["count"] for row in ordered if row["disposition"] == "decision"),
@@ -335,6 +378,7 @@ def triage(scan: dict) -> dict:
         "cleared": sum(row["count"] for row in ordered if row["disposition"] == "cleared"),
         "groups": len(ordered),
         "decision_groups": sum(1 for row in ordered if row["disposition"] == "decision"),
+        "decision_distinct_values": sum(row["distinct"] for row in ordered if row["disposition"] == "decision"),
     }
     return {
         "schema": SCHEMA,
@@ -354,14 +398,17 @@ def triage(scan: dict) -> dict:
     }
 
 
-def _rows(group: dict) -> str:
+def _value_rows(group: dict) -> str:
     rows = []
-    for sample in group["samples"]:
-        location = escape(str(sample["file"])) + ("" if sample["line"] is None else ":" + str(sample["line"]))
-        matched = "<br>".join("<code>" + escape(value) + "</code>" for value in sample["matched"]) or "<span class='muted'>structural finding: no matched literal</span>"
-        rows.append(
-            "<tr><td>" + location + "</td><td>" + escape(sample["commit"]) + "</td><td>"
-            + matched + "</td><td><code>" + escape(sample["source_line"]) + "</code></td></tr>")
+    for value in group["values"]:
+        matched = "<br>".join("<code>" + escape(item) + "</code>" for item in value["matched"]) \
+            or "<span class='muted'>structural finding: no matched literal</span>"
+        locations = "<br>".join(
+            escape(str(item["file"])) + ("" if item["line"] is None else ":" + str(item["line"]))
+            + " <span class='muted'>@" + escape(item["commit"]) + "</span>"
+            for item in value["locations"])
+        rows.append("<tr><td>" + str(value["occurrences"]) + "</td><td>" + matched
+                    + "</td><td><code>" + escape(value["source_line"]) + "</code></td><td>" + locations + "</td></tr>")
     return "".join(rows)
 
 
@@ -372,7 +419,7 @@ def render_triage(result: dict) -> str:
               "Triage does not judge privacy and does not prove a repository safe.")
     sections = []
     for title, disposition, hint in (
-        ("Decision required", "decision", "No deterministic rule explains these findings. Read the matched text and decide."),
+        ("Decision required", "decision", "No deterministic rule explains these findings. Read the distinct values and decide."),
         ("Declared contract findings", "contract", "Repository, workflow and contribution contracts. These are policy gaps, not disclosures."),
         ("Explained by a deterministic rule", "cleared", "A stated rule covers these findings. The rule, not a model, is the reason."),
     ):
@@ -381,29 +428,34 @@ def render_triage(result: dict) -> str:
             continue
         body = []
         for row in groups:
+            truncated = "" if row["values_shown"] >= row["distinct"] else \
+                ("<p class='muted'>showing " + str(row["values_shown"]) + " of " + str(row["distinct"])
+                 + " distinct values; every occurrence remains in scan.json</p>")
             body.append(
                 "<details" + (" open" if disposition != "cleared" else "") + "><summary><strong>"
-                + escape(row["rule"]) + "</strong> · " + str(row["count"]) + " findings · "
-                + str(row["files"]) + " files · " + escape(row["reason"]) + "</summary>"
-                + "<p>" + escape(row["reason_text"]) + "</p>"
+                + escape(row["rule"]) + "</strong> · " + str(row["count"]) + " findings · " + str(row["distinct"])
+                + " distinct values · " + str(row["files"]) + " files · " + escape(row["reason"]) + "</summary>"
+                + "<p>" + escape(row["reason_text"]) + "</p>" + truncated
                 + "<div class='scroll'><table><caption>" + escape(row["category"]) + " · path class "
-                + escape(row["path_class"]) + "</caption><thead><tr><th>Location</th><th>Commit</th>"
-                + "<th>Matched value</th><th>Source line</th></tr></thead><tbody>"
-                + _rows(row) + "</tbody></table></div></details>")
+                + escape(row["path_class"]) + "</caption><thead><tr><th>Occurrences</th><th>Matched value</th>"
+                + "<th>Source line</th><th>Locations</th></tr></thead><tbody>"
+                + _value_rows(row) + "</tbody></table></div></details>")
         sections.append("<section><h2>" + escape(title) + " · " + str(sum(row["count"] for row in groups))
-                        + "</h2><p class='muted'>" + escape(hint) + "</p>" + "".join(body) + "</section>")
-    reason_table = "<div class='scroll'><table><thead><tr><th>Disposition</th><th>Rule</th><th>Path class</th>" \
-                   "<th>Reason</th><th>Findings</th><th>Files</th></tr></thead><tbody>" + "".join(
-        "<tr><td>" + escape(row["disposition"]) + "</td><td>" + escape(row["rule"]) + "</td><td>"
-        + escape(row["path_class"]) + "</td><td>" + escape(row["reason"]) + "</td><td>" + str(row["count"])
-        + "</td><td>" + str(row["files"]) + "</td></tr>" for row in result["groups"]) + "</tbody></table></div>"
+                        + " findings in " + str(len(groups)) + " groups</h2><p class='muted'>" + escape(hint)
+                        + "</p>" + "".join(body) + "</section>")
+    reason_table = "<div class='scroll'><table><thead><tr><th>Disposition</th><th>Reason</th><th>Rule</th>" \
+                   "<th>Path class</th><th>Findings</th><th>Distinct values</th><th>Files</th></tr></thead><tbody>" + "".join(
+        "<tr><td>" + escape(row["disposition"]) + "</td><td>" + escape(row["reason"]) + "</td><td>"
+        + escape(row["rule"]) + "</td><td>" + escape(row["path_class"]) + "</td><td>" + str(row["count"])
+        + "</td><td>" + str(row["distinct"]) + "</td><td>" + str(row["files"]) + "</td></tr>"
+        for row in result["groups"]) + "</tbody></table></div>"
     return """<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <title>General-Auditor · deterministic triage</title>
 <style>
 :root{color-scheme:light dark;font-family:system-ui,sans-serif;background:#10151b;color:#e8edf3}
-body{max-width:1400px;margin:auto;padding:36px 24px}h1{font-size:1.9rem}h2{font-size:1.2rem}
+body{max-width:1500px;margin:auto;padding:36px 24px}h1{font-size:1.9rem}h2{font-size:1.2rem}
 p,li,td,th{line-height:1.55}.muted,footer{color:#aab7c5}
 .stats{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0}.stats span{border:1px solid #354557;padding:10px 16px;border-radius:8px}
 section{margin:26px 0;padding:18px;background:#17212c;border:1px solid #354557;border-radius:10px}
@@ -415,7 +467,7 @@ footer{margin-top:32px;font-size:.9rem}
 <header><p class="muted">DETERMINISTIC TRIAGE · NO MODEL, NO VERDICT</p><h1>""" + escape(result["repository"]) + """</h1>
 <p>""" + escape(notice) + """</p>
 <p>Scope <strong>""" + escape(str(result["scope"])) + """</strong> · head <code>""" + escape((result["head"] or "")[:12]) + """</code> · scan status <strong>""" + escape(str(result["status"])) + """</strong> · commits """ + escape(str(result["coverage"]["commits"])) + """ · text versions """ + escape(str(result["coverage"]["text_versions"])) + """ · excluded objects """ + escape(str(result["coverage"]["excluded"])) + """ · triaged """ + escape(result["generated_at"]) + """</p></header>
-<div class="stats"><span>""" + str(totals["findings"]) + """ findings</span><span>""" + str(totals["decisions"]) + """ need a decision</span><span>""" + str(totals["contracts"]) + """ contract findings</span><span>""" + str(totals["cleared"]) + """ explained by rule</span><span>""" + str(totals["decision_groups"]) + """ decision groups</span></div>
+<div class="stats"><span>""" + str(totals["findings"]) + """ findings</span><span>""" + str(totals["decisions"]) + """ need a decision · """ + str(totals["decision_groups"]) + """ groups · """ + str(totals["decision_distinct_values"]) + """ distinct values</span><span>""" + str(totals["contracts"]) + """ contract findings</span><span>""" + str(totals["cleared"]) + """ explained by rule</span></div>
 <main>""" + "".join(sections) + """<section><h2>All groups</h2>""" + reason_table + """</section></main>
 <footer>Matched values and locations are retained only in this private local file. Triage groups detector output deterministically; a cleared group means a stated rule applied, not that the underlying content was reviewed.</footer></html>
 """
