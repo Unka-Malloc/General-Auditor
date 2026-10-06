@@ -35,6 +35,8 @@ def parser():
     for name in ("review-request", "review-complete"):
         command = commands.add_parser(name, help="Use the repository's protected local contextual review files")
         command.add_argument("--directory", default=".")
+    triage = commands.add_parser("triage", help="Classify one saved local scan deterministically, without a model")
+    triage.add_argument("--directory", default=".")
     return root
 
 
@@ -56,7 +58,7 @@ def _exit_status(result):
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        if args.command in {"scan", "review-request", "review-complete"}:
+        if args.command in {"scan", "review-request", "review-complete", "triage"}:
             _local_only()
         if args.command == "init":
             created = initialize(args.directory, args.repository, profile_only=args.central_profile,
@@ -97,6 +99,19 @@ def main(argv=None):
         from .local_store import LocalStore
         from .review import create_review_request, render_review_template, complete_review
         from .report import render_review
+        if args.command == "triage":
+            from .triage import render_triage, triage
+            store = LocalStore(args.directory)
+            with store.locked():
+                result = triage(store.read_json("scan.json", None))
+                store.write_json("triage.json", result)
+                store.write_text("triage.html", render_triage(result))
+            print(json.dumps({"status": "triaged", "findings": result["totals"]["findings"],
+                              "decisions": result["totals"]["decisions"],
+                              "contracts": result["totals"]["contracts"],
+                              "cleared": result["totals"]["cleared"],
+                              "decision_groups": result["totals"]["decision_groups"]}))
+            return 0
         store = LocalStore(args.directory)
         with store.locked():
             source = store.read_json("scan.json", None)

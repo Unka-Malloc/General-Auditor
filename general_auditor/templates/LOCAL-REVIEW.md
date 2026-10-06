@@ -39,6 +39,27 @@ tracked, preserve its working file and remove only the index entry within the
 authorized cleanup scope. Ignoring a path does not erase previously published
 copies. Do not automatically delete retained local history.
 
+## Deterministic triage first
+
+Detector output is a candidate list, not a work list. Classify it before any
+model reads it:
+
+```sh
+python3 -m general_auditor triage --directory ../ExampleRepo
+```
+
+Triage writes `triage.json` and `triage.html` beside the scan and prints counts
+only. Every finding receives one deterministic class: `decision` (no stated rule
+explains it), `contract` (a declared repository, workflow or contribution
+contract), or `cleared` (a named rule explains it, with that rule recorded so the
+explanation itself can be challenged). Triage is not a verdict and proves
+nothing about safety.
+
+Do not dispatch a model per detector hit. Contextual review, when it is
+performed, is scoped to the reported decision groups; a cleared group is not a
+reviewed group. Re-run triage after a new scan; its classes are bound to that
+scan's findings.
+
 ## Contextual review
 
 Generate the request for the latest local scan:
