@@ -140,6 +140,37 @@ class ReviewRequestTests(unittest.TestCase):
         self.assertNotIn("private_runtime_value", rendered)
         self.assertNotIn("/Users/", rendered)
 
+    def test_structural_directory_location_binds_without_accepting_escapes(self):
+        def structural_scan(path):
+            scan = synthetic_scan()
+            scan["findings"].append({
+                "file": path,
+                "line": None,
+                "commit": "d" * 40,
+                "rule": "repository.documentation-required-section",
+                "category": "Documentation governance",
+                "severity": "warning",
+                "evidence": "A required formal documentation section has no tracked Markdown file.",
+                "judgment": "unreviewed",
+                "basis": "Pattern match only; source context requires local Agent or maintainer review.",
+                "impact": "A declared documentation contract may be missing.",
+                "action": "Review locally.",
+            })
+            return scan
+
+        scan = structural_scan("docs/specs/")
+        request = create_review_request(scan)
+        identity = [item["identity"] for item in request["findings"]
+                    if item["identity"]["file"] == "docs/specs/"]
+        self.assertEqual(len(identity), 1)
+        self.assertIsNone(identity[0]["line"])
+        complete_review(scan, valid_receipt(scan))
+
+        for rejected in ("/etc/passwd", "docs/../outside/", "docs/./specs/",
+                         "docs\\specs", "docs//specs", "docs/specs//", ""):
+            with self.assertRaises(ValueError):
+                create_review_request(structural_scan(rejected))
+
     def test_duplicate_or_malformed_semantic_tasks_are_rejected(self):
         scan = synthetic_scan()
         scan["semantic_review"].append(dict(scan["semantic_review"][0]))
