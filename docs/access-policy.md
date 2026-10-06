@@ -30,9 +30,13 @@ python3 tools/configure_access.py --apply
 
 The command uses the operator's existing authenticated `gh` session without extracting or publishing credentials. It creates or updates only the named managed Ruleset, preserves unrelated Rulesets, and reads back the resulting settings. It does not add collaborators, grant new roles, change visibility, or delete PRs. New publishing repositories must be classified in their profile before this administration operation applies to them.
 
-## CI observation
+## Read-only observation
 
-Central CI reads the settings only for repositories selected for an audit. Configuration drift produces a report warning. GitHub withholds `bypass_actors` from callers without write access to the Ruleset; the ordinary central token therefore cannot continuously verify all bypass roles. That part is marked **unverified**, not compliant or misconfigured. The administrator command verifies the complete policy using authorized access.
+Access-policy inspection is separate from local report generation and CI content
+checks. GitHub can withhold `bypass_actors` from read-only callers; that information
+must remain **unverified**, not compliant or misconfigured. The administrator
+command checks complete policy using authorized access. It does not require a
+central scheduled audit or public reporting service.
 
 ## References
 

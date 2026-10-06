@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 
 from general_auditor.review import (
@@ -344,7 +345,7 @@ class ReviewReceiptTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_review(scan, review)
 
-    def test_machine_paths_and_common_sensitive_literals_are_rejected(self):
+    def test_private_local_reasoning_preserves_original_literals(self):
         scan = synthetic_scan()
         for field, text in (
             ("summary", "Reviewed local file /Users/tester/private/config.") ,
@@ -353,8 +354,8 @@ class ReviewReceiptTests(unittest.TestCase):
             review = valid_receipt(scan)
             review[field] = text
             with self.subTest(field=field, text_kind="path" if "/Users/" in text else "token"):
-                with self.assertRaises(ValueError):
-                    validate_review(scan, review)
+                result = complete_review(scan, review)
+                self.assertEqual(result["contextual_review"][field], text)
 
     def test_incomplete_scan_or_concrete_limitations_never_look_complete(self):
         scan = synthetic_scan()
@@ -369,11 +370,40 @@ class ReviewReceiptTests(unittest.TestCase):
         result = complete_review(failed_scan, review)
         self.assertEqual(result["contextual_review"]["receipt_status"], "incomplete")
 
+    def test_original_evidence_identity_binds_span_context_and_version(self):
+        scan = synthetic_scan()
+        raw = "Synthetic 原文"
+        evidence = {"kind": "literal_match", "matched_text": raw,
+                    "context": {"text": "prefix " + raw, "start_line": 7, "end_line": 7},
+                    "span": {"start": 7, "end": 7 + len(raw), "unit": "unicode_codepoint"},
+                    "provenance": {"scope": "range", "commit": "a" * 40,
+                                   "object": "e" * 40, "source_kind": "git_blob"}}
+        scan["findings"][0]["source_evidence"] = evidence
+        receipt = valid_receipt(scan)
+        request = create_review_request(scan)
+        self.assertEqual(request["findings"][0]["identity"]["source_evidence"], evidence)
+        validate_review(scan, receipt)
+        for field in ("span", "context", "provenance"):
+            changed = deepcopy(scan)
+            if field == "span":
+                changed["findings"][0]["source_evidence"][field]["start"] += 1
+                changed["findings"][0]["source_evidence"][field]["end"] += 1
+            elif field == "context":
+                changed["findings"][0]["source_evidence"][field]["text"] += " changed"
+            else:
+                changed["findings"][0]["source_evidence"][field]["object"] = "f" * 40
+            with self.assertRaises(ValueError):
+                validate_review(changed, receipt)
+        receipt["finding_reviews"][0]["identity"]["source_evidence"]["context"]["text"] = "mutated"
+        self.assertEqual(scan["findings"][0]["source_evidence"], evidence)
+
     def test_receipt_writer_uses_private_file_mode(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "local" / "review.json"
+            subprocess.run(["git", "init", "-q", directory], check=True)
+            (Path(directory) / ".gitignore").write_text("/.general-auditor/local/\n")
+            path = Path(directory) / ".general-auditor/local/review-receipt.json"
             scan = synthetic_scan()
-            write_local_receipt(path, scan, valid_receipt(scan))
+            write_local_receipt(directory, scan, valid_receipt(scan))
             self.assertEqual(json.loads(path.read_text())["schema"], "general-auditor-local-review-receipt")
             if os.name == "posix":
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)

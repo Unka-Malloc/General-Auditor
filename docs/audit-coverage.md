@@ -16,8 +16,9 @@ in [policy sources](policy-sources.md).
 
 The maintained catalog comes from
 [`detection.rule_catalog()`](../general_auditor/detection/__init__.py).
-All rows return locations and withheld-value categories, never matching source
-text. The tests use synthetic inputs in
+Detectors retain rule identities and source locations. The local report path
+attaches actual selected source matches and context; the CI boundary emits only
+status and counts. The tests use synthetic inputs in
 [`test_detection_coverage.py`](../tests/test_detection_coverage.py).
 
 | Source check family | Executable counterpart | Focused regression / retained distinction |
@@ -36,7 +37,7 @@ text. The tests use synthetic inputs in
 | Backend configuration, deployment and provider resource metadata | `privacy.backend.metadata`, `privacy.backend.resource-id` | `test_legacy_operational_and_business_signals_remain_advisory`; operational resource identifiers and metadata remain reviewed |
 | Developer accounts, volumes, temporary and deployment paths, Windows workspaces | `privacy.local.machine-path`, `privacy.local.deployment-path` | `test_personal_identifiers_and_machine_paths_are_advisory`, `test_legacy_operational_and_business_signals_remain_advisory`; standard public system paths distinguished |
 | Personal, device, session and runtime records | `privacy.personal.record-field`, `privacy.personal.identifier` | `test_personal_identifiers_and_machine_paths_are_advisory`; contextual field signals plus identifier shapes |
-| Exact exceptions and safe output locations | `scan_text(..., profile=...)`, `redact_path(...)` | `test_exact_value_and_path_exception_is_counted_without_disclosure`, `test_exact_exception_never_suppresses_other_value_or_rule`, `test_domain_allowlist_is_exact_in_host_scheme_and_path`, `test_location_output_redacts_sensitive_path_components` |
+| Exact exceptions and safe internal metadata | `scan_text(..., profile=...)`, internal path handling; private reports preserve actual locations | `test_exact_value_and_path_exception_is_counted_without_disclosure`, `test_exact_exception_never_suppresses_other_value_or_rule`, `test_domain_allowlist_is_exact_in_host_scheme_and_path`, `test_location_output_redacts_sensitive_path_components` |
 
 Exact privacy exceptions bind a rule, repository-relative path and matching value.
 IP admissions bind exact addresses and path scope with a documented service;
@@ -74,7 +75,7 @@ with exit statuses is exercised by
 | Golden suite, local gate manifest and industry gate groups | `repository.ci-golden-suite`, `repository.ci-local-gate-profile`, `repository.ci-industry-groups` | `_evaluate_ci_contract` checks declared files/markers/coverage jobs; private local-only declarations are not published as requirements |
 | Backend source/security boundary | `repository.server-material-path`, `repository.server-boundary-manifest`, `repository.server-security-signal` | `test_structural_hygiene_and_content_signals_differ`; dangerous-code markers are warnings, not automatic vulnerability findings |
 | Defect closure evidence | `repository.defect-record-closure` | `test_defect_closure_evidence_not_just_closed_label`; closed labels alone do not satisfy required evidence |
-| Maintainer-only publishing and Auditor contribution authority | [governance.py](../general_auditor/governance.py), [maintained Rulesets](../.github/rulesets/) | [test_governance.py](../tests/test_governance.py) and `test_only_named_maintainer_from_temporary_upstream_branch_can_contribute` in [test_pipeline.py](../tests/test_pipeline.py) |
+| Maintainer-only publishing and Auditor contribution authority | [governance.py](../general_auditor/governance.py), [maintained Rulesets](../.github/rulesets/) | [test_governance.py](../tests/test_governance.py) and `test_only_named_maintainer_from_temporary_upstream_branch_can_contribute` in the contribution verification tests |
 
 A policy field, evidence marker or declared state graph is not proof of runtime
 behavior. The resource contracts preserve ownership, lifecycle, cleanup,
@@ -91,14 +92,16 @@ exclusions do not establish that private work was reviewed or deleted.
 | Full text and transient outgoing versions | Same scanner and shared blob analysis | `test_large_full_text_blob_has_no_detector_size_cap`, `test_intermediate_secret_is_seen_even_when_removed_before_head` |
 | Eight common privacy-context topics and profile obligations | [review.py](../general_auditor/review.py) | `test_request_covers_lico_topics_detector_tasks_and_profile_obligations` in [test_review.py](../tests/test_review.py) |
 | One judgment per finding/task, extra contextual findings and limitations | Scan-bound local request/receipt/report | `test_all_findings_and_all_tasks_must_be_reviewed_exactly_once`, `test_receipt_must_match_exact_scan_scope_and_finding_identity`, `test_incomplete_scan_or_concrete_limitations_never_look_complete` |
-| Private local reasoning versus public automated status | Local-only reviewed envelope; central scans remain unreviewed | `test_complete_review_is_local_only_and_does_not_change_ci_verdict`, `test_additions_are_redacted_repository_relative_and_location_bound` |
-| Independent repository completion, recovery and rolling reporting | [pipeline.py](../general_auditor/pipeline.py), [runner.py](../general_auditor/runner.py), [report.py](../general_auditor/report.py) | `test_repository_worker_scans_real_git_objects_and_persists_its_result` crosses the actual worker/scanner boundary; `test_failed_policy_artifact_round_trip_restores_worker_and_publisher` verifies failure evidence through real ZIP restoration; actual notifier dispatch, trusted run metadata, completion races, ordering, replay, missed-event and visibility cases in [test_pipeline.py](../tests/test_pipeline.py); retention case in [test_auditor.py](../tests/test_auditor.py); lossless embedded-data reconstruction, native gzip decoding, safe text rendering and bounded detail pages in [test_report_rendering.py](../tests/test_report_rendering.py) |
+| Private exact evidence versus CI status | Local-only source-backed scan and reviewed envelope; summary-only `check` | Local source fidelity, receipt binding and CI isolation tests; a contextual verdict never rewrites the CI result |
+| Local report persistence and history | Fixed Git-root `.general-auditor/local/` storage and self-contained HTML | Local persistence, exact source evidence, safe rendering and selected-run isolation tests |
+| Report-free CI boundary | `check` CLI and composite action | [test_cli_boundary.py](../tests/test_cli_boundary.py) covers counts/status-only output and CI refusal for local report commands |
 
 Local receipts record submitted judgments. They cannot attest Agent identity,
 prove a conversation occurred, certify safety or automatically update exceptions.
-Exact source snapshots and raw excerpts from the previous local workflow are not
-copied into the new receipt or report. Source inspection stays in the local
-repository. Blocking keyword hooks are replaced by warning-only signals according
+The current local report preserves actual source matches and context from the
+selected source version. Exact evidence stays in ignored local files; it is not
+copied into CI summaries, terminal output or public artifacts. Old redacted
+archives cannot establish original values or a completed contextual review. Blocking keyword hooks are replaced by warning-only signals according
 to the current policy; declared structural failures and incomplete coverage retain
 separate failing statuses.
 
@@ -106,9 +109,10 @@ separate failing statuses.
 
 Run `python3 tools/verify.py` on the integrated candidate after source review and
 scoped fixes. Targeted tests above locate relevant behavior; they are not a claim
-that every contract variation has been independently verified. Hosted workflow
-execution, artifact persistence and the Pages HTTP response are separate external
-checks. Queued Actions, a pending PR and a report link are not deployment evidence.
+that every contract variation has been independently verified. Actual upstream workflow execution is separate from local engineering checks.
+Queued Actions and pending PRs are not execution evidence. The retired hosted
+report service is not a maintained capability; independent historical records
+remain data, not a compatibility runtime.
 
 Both former auditor repositories are now private and archived. Their dedicated
 active profiles have been removed while shared checks and source/license

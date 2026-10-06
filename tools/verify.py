@@ -25,7 +25,7 @@ def source_and_profiles():
     ids = [rule.id for rule, _ in COMPILED] + [rule.id for rule in rule_catalog()]
     if len(ids) != len(set(ids)):
         raise ValueError("Rule identities must be unique")
-    for required in ("README.md", "docs/README.md", "action.yml", ".github/workflows/audit.yml", ".github/workflows/audit-repository.yml", ".github/workflows/publish-report.yml", ".github/workflows/verify.yml"):
+    for required in ("README.md", "docs/README.md", "action.yml", ".github/workflows/verify.yml"):
         if not (ROOT / required).is_file():
             raise ValueError("Required auditor delivery asset is missing")
 

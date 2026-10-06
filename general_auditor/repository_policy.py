@@ -18,6 +18,7 @@ import subprocess
 import tempfile
 
 from .detection.paths import redact_path
+from .detection.evidence import source_evidence as build_source_evidence
 
 
 POLICY_FIELDS = {
@@ -675,8 +676,8 @@ def _resource_task(resource):
             f"({states}); assess declared tests ({tests}) and risks ({risks}).")
 
 
-def _public_finding(rule, path, head, message, *, severity="error", line=None, category="Repository contract", action=None, basis=None):
-    safe = redact_path(path)
+def _public_finding(rule, path, head, message, *, severity="error", line=None, category="Repository contract", action=None, basis=None, include_source=False):
+    safe = path if include_source else redact_path(path)
     return {
         "file": safe, "line": line, "commit": head if isinstance(head, str) else None,
         "rule": rule, "category": category, "severity": severity,
@@ -687,11 +688,12 @@ def _public_finding(rule, path, head, message, *, severity="error", line=None, c
     }
 
 
-def evaluate_contribution_text(path, text, add, mark):
+def evaluate_contribution_text(path, text, add, mark, *, include_source=False):
     """Emit redacted advisory attribution locations for any decoded text blob."""
     rule = "contribution.cursor-attribution"
     mark(rule)
     file_name = PurePosixPath(path).name.casefold()
+    line_starts = [0] + [i + 1 for i, char in enumerate(text) if char == "\n"] if include_source else None
     for match in CURSOR_IDENTITY.finditer(text):
         line_start = text.rfind("\n", 0, match.start()) + 1
         line_end = text.find("\n", match.start())
@@ -708,9 +710,10 @@ def evaluate_contribution_text(path, text, add, mark):
             or (bool(headings) and not re.search(r"(?m)^#{1,6}\s+", prefix[headings[-1].end():]))
         )
         if context:
+            options = {"source_evidence": build_source_evidence(text, start=match.start(), end=match.end(), line_starts=line_starts)} if include_source else {}
             add(rule, path, "Contributor or attribution metadata contains an automated-tool identity signal.",
                 severity="warning", line=text.count("\n", 0, match.start()) + 1,
-                category="Contributor metadata", action="Check the attribution context and publication policy; the identity text is withheld and is not treated as a leak or verdict.")
+                category="Contributor metadata", action="Check the attribution context and publication policy; the identity text is withheld and is not treated as a leak or verdict.", **options)
 
 
 def evaluate_data_files(profile, rows, read, add, mark, exempted):
@@ -768,7 +771,7 @@ def evaluate_data_files(profile, rows, read, add, mark, exempted):
                 add("repository.json-shape-invalid", path, "An allowlisted JSON file does not have an approved configuration or fixture shape.", category="Data-file policy")
 
 
-def evaluate(repository, profile, paths, read_text, event):
+def evaluate(repository, profile, paths, read_text, event, *, include_source=False):
     """Evaluate a selected central profile against immutable candidate metadata.
 
     `read_text` is called at most once for each requested path. An unreadable or
@@ -806,8 +809,15 @@ def evaluate(repository, profile, paths, read_text, event):
         text_cache[path] = value
         return value
 
-    def add(rule, path, message, *, severity="error", line=None, category="Repository contract", action=None, basis=None, commit=None):
+    def add(rule, path, message, *, severity="error", line=None, category="Repository contract", action=None, basis=None, commit=None, source_evidence=None):
         row = _public_finding(rule, path, head if commit is None else commit, message, severity=severity, line=line, category=category, action=action, basis=basis)
+        if include_source:
+            row["file"] = path
+            evidence = source_evidence
+            if evidence is None:
+                text = read(path, rule) if path in rows else None
+                evidence = build_source_evidence(text, line=line) if text is not None else {"kind": "derived"}
+            row["source_evidence"] = evidence
         findings.append(row)
         if severity == "error": blocking.add(rule)
 
@@ -967,7 +977,7 @@ def evaluate(repository, profile, paths, read_text, event):
             continue
         text = read(path, "contribution.cursor-attribution")
         if text is not None:
-            evaluate_contribution_text(path, text, add, mark)
+            evaluate_contribution_text(path, text, add, mark, include_source=include_source)
     commit_metadata = event.get("commit_metadata")
     if isinstance(commit_metadata, list):
         for item in commit_metadata:
@@ -1057,9 +1067,10 @@ def evaluate(repository, profile, paths, read_text, event):
             if text is None: continue
             for term in dependency_policy.get("warning_terms", list(COMMERCIAL_TERMS)):
                 pattern = re.compile(r"\s+".join(re.escape(part) for part in term.split()), re.I)
-                line = _line_for(text, pattern)
-                if line is not None:
-                    add("repository.dependency-commercial-signal", path, "A dependency manifest contains a commercial-use term that requires contextual review.", severity="warning", line=line, category="Dependency governance", action="Review the dependency's actual license and use conditions; the term alone is not a violation.")
+                matched = pattern.search(text)
+                if matched is not None:
+                    line = text.count("\n", 0, matched.start()) + 1
+                    add("repository.dependency-commercial-signal", path, "A dependency manifest contains a commercial-use term that requires contextual review.", severity="warning", line=line, category="Dependency governance", action="Review the dependency's actual license and use conditions; the term alone is not a violation.", source_evidence=build_source_evidence(text, start=matched.start(), end=matched.end()) if include_source else None)
             try:
                 parsed_names = _dependencies(path, text)
             except ValueError:
@@ -1112,9 +1123,10 @@ def evaluate(repository, profile, paths, read_text, event):
             if text is None: continue
             for category, terms in SERVER_DANGEROUS_MARKERS.items():
                 pattern = re.compile("|".join(r"\s+".join(re.escape(part) for part in term.split()) for term in terms), re.I)
-                line = _line_for(text, pattern)
-                if line is not None:
-                    add(rule, path, "A source-code security marker requires contextual review.", severity="warning", line=line, category="Server security", action="Determine whether this is executable behavior, a negative test, documentation, or another benign reference; marker matches never block by themselves.")
+                matched = pattern.search(text)
+                if matched is not None:
+                    line = text.count("\n", 0, matched.start()) + 1
+                    add(rule, path, "A source-code security marker requires contextual review.", severity="warning", line=line, category="Server security", action="Determine whether this is executable behavior, a negative test, documentation, or another benign reference; marker matches never block by themselves.", source_evidence=build_source_evidence(text, start=matched.start(), end=matched.end()) if include_source else None)
 
     defect_policy = policy.get("defect_records")
     if defect_policy:
@@ -1156,7 +1168,7 @@ def evaluate(repository, profile, paths, read_text, event):
     if policy.get("ci_contract"):
         review_tasks.append("Review required platform adaptations, smoke tests, golden-suite cases and project-specific gate groups against the preserved CI status contract.")
     for item in [*incomplete, *exempted]:
-        if "path" in item: item["path"] = redact_path(item["path"])
+        if "path" in item and not include_source: item["path"] = redact_path(item["path"])
     return {
         "privacy_policy": dict(profile.get("privacy_policy", {})),
         "findings": findings,

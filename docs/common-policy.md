@@ -20,9 +20,9 @@ Official websites, standalone public documentation, benchmark repositories and o
 
 An active `Maintainer-owned publishing` branch Ruleset covers every branch and restricts creation, updates and deletion to organization administrators and repository maintain/admin roles. Repository writers may propose a PR through the collaborator-only entry point, but cannot change these protected branches. Existing review, status-check and history-protection Rulesets continue to apply independently. This policy governs changes to the upstream repository; it does not prevent reading or forking public source.
 
-The repository category in each central profile selects this policy. Protocol definitions and software implementations retain their existing contribution policy unless explicitly classified otherwise. Use `tools/configure_access.py` for administrator-side verification and explicit configuration. CI only observes settings and reports drift; it never grants access or weakens a Ruleset. GitHub omits bypass identities from read-only API responses, so central CI marks that portion unverified rather than inventing a pass or a violation.
+The repository category in each central profile selects this policy. Protocol definitions and software implementations retain their existing contribution policy unless explicitly classified otherwise. Use `tools/configure_access.py` for administrator-side verification and explicit configuration. Read-only access inspection never grants access or weakens a Ruleset. GitHub can omit bypass identities from read-only API responses; unavailable evidence must remain unverified rather than becoming a pass or violation.
 
-General-Auditor itself uses the stricter [maintainer contribution contract](contributing.md): one permanent `only` branch, temporary upstream `work/*` PRs, required checks and no direct source pushes. Reports are published through Actions artifacts and Pages without modifying source branches.
+General-Auditor itself uses the stricter [maintainer contribution contract](contributing.md): one permanent `only` branch, temporary upstream `work/*` PRs, required checks and no direct source pushes. Detailed reports remain in ignored local files; CI returns only a safe summary and does not publish reports.
 
 ## Workflow and documentation identity
 
@@ -32,15 +32,17 @@ The default root `README.md` is written in English. Chinese documentation belong
 
 ## Evidence and judgments
 
-Each privacy finding must identify the file, line and commit when available, rule, redacted content category, judgment and basis, impact, and handling recommendation or result. Never copy the sensitive value into the report. Review the original content locally when context is needed.
+Each detailed local finding identifies file, line, commit when available, actual matched source and context, rule explanation, judgment and basis, impact and handling. Preserve original source spelling in the private report. Structural findings with no source literal say so. Missing source must not be invented or reconstructed from a redacted archive.
 
-Automated records use `warning` and `unreviewed`. They do not assert `confirmed leak` or `false positive`. The local Agent's review must explain that distinction using evidence. A report with no matches is not proof of safety. Missing coverage and failed scans must remain visible.
+Exact content is authorized only inside the repository's ignored `.general-auditor/local/` files. CI summaries, terminal output, conversation, PRs and cloud artifacts must not contain these values. A report is private data even when its scanned repository is public. The `check` command produces no report; local scan and review commands refuse CI execution.
 
-The local `review-request` and `review-complete` commands can bind a redacted receipt to the exact scan, tasks and findings. A receipt records submitted review content only; it does not attest Agent identity or completion of a real conversation. Keep the request, receipt and reviewed report out of CI artifacts and the shared Pages report. See the [local review template](../general_auditor/templates/LOCAL-REVIEW.md) and [audit coverage ledger](audit-coverage.md).
+Automated records use `warning` and `unreviewed`. They do not assert a confirmed issue or false positive. Contextual judgments must be supported by the selected source: `false_positive`, `confirmed`, or `uncertain` with a concrete missing fact. A report with no matches is not proof of safety. Missing coverage and failed scans remain visible.
+
+Local review requests and receipts are bound to one exact scan, its tasks and findings. They may retain the actual evidence in the same private directory. A receipt does not attest Agent identity, prove a conversation occurred, or create a reusable exception. See the [local review guide](../general_auditor/templates/LOCAL-REVIEW.md).
 
 ## Enforcement
 
-Pattern matches are advisory. The `scan` exit contract is:
+Pattern matches are advisory. The `scan` and summary-only `check` exit contract is:
 
 | Exit | Scan state | Meaning |
 | --- | --- | --- |

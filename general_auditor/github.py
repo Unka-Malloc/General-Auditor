@@ -3,11 +3,10 @@
 import json
 import os
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
-from .config import OWNERS, repository_name
-from .gitdata import SHA
+from .config import repository_name
 from .governance import RULESET_NAME, violations
 
 
@@ -54,53 +53,6 @@ class GitHub:
             if len(rows) < 100:
                 break
             page += 1
-
-    def repositories(self):
-        result = []
-        for owner in OWNERS:
-            for row in self.pages("/orgs/" + owner + "/repos", type="public"):
-                if row.get("private") or row.get("visibility") != "public":
-                    continue
-                name = repository_name(row["full_name"])
-                if name.split("/")[0].lower() != owner.lower():
-                    raise APIError("Repository owner does not match the inventory scope")
-                result.append({"repository": name, "default_branch": row["default_branch"],
-                               "archived": row["archived"], "visibility": "public"})
-        return sorted(result, key=lambda row: row["repository"].lower())
-
-    def candidates(self, repository, default_branch, *, all_refs=True):
-        repository_name(repository)
-        prefix = "/repos/" + repository
-        candidates = []
-        if all_refs:
-            try:
-                branches = list(self.pages(prefix + "/branches"))
-            except APIError as error:
-                if error.status != 409:
-                    raise
-                branches = []
-        else:
-            branches = [self.get(prefix + "/branches/" + quote(default_branch, safe=""))]
-        if not branches:
-            return [{"key": repository + ":empty", "repository": repository, "head": None,
-                     "base": None, "trigger": "empty_repository", "default": True}]
-        for row in branches:
-            head = row["commit"]["sha"]
-            if not SHA.fullmatch(head):
-                raise APIError("Invalid branch commit identity")
-            candidates.append({"key": repository + ":branch:" + row["name"], "repository": repository,
-                               "head": head, "base": None, "trigger": "branch", "default": row["name"] == default_branch, "branch_refs": ["refs/heads/" + branch["name"] for branch in branches]})
-        if all_refs:
-            for row in self.pages(prefix + "/pulls", state="open"):
-                # Fork commits are fetched through the public upstream PR object.
-                if row["head"].get("repo") and row["head"]["repo"].get("private"):
-                    continue
-                head, base = row["head"]["sha"], row["base"]["sha"]
-                if not SHA.fullmatch(head) or not SHA.fullmatch(base):
-                    raise APIError("Invalid pull request commit identity")
-                candidates.append({"key": repository + ":pr:" + str(row["number"]), "repository": repository,
-                                   "head": head, "base": base, "trigger": "pull_request", "default": False, "base_ref": row["base"].get("ref"), "head_ref": row["head"].get("ref"), "branch_refs": ["refs/heads/" + branch["name"] for branch in branches]})
-        return candidates
 
     def access_policy(self, repository):
         repository_name(repository)

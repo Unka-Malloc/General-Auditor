@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "general-auditor"
 version = "0.1.0"
-description = "Repository-scoped audit signals and a rolling public report"
+description = "Repository-scoped CI checks and private local audit reports"
 requires-python = ">=3.11"
 dependencies = []
 

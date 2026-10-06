@@ -1,56 +1,65 @@
-# Initialization and repository policy
+# Repository initialization
 
-There is one initialization schema and set of defaults: `general_auditor/config.py`. Both central discovery and local initialization use it. The common privacy detector is maintained in `general_auditor/detection/`; deterministic repository contracts are evaluated from `general_auditor/repository_policy.py`. The mandatory semantic baseline is [common-policy.md](common-policy.md), and check-level provenance is in the [audit coverage ledger](audit-coverage.md).
+No conventional source, documentation or branch layout is required. Common rules
+apply immediately; profiles add only declared repository-specific requirements.
 
-## Central initialization
+## Local setup
 
-```sh
-python3 -m general_auditor discover
-```
-
-This discovers the configured organizations' public repositories and creates missing `profiles/<owner>/<repository>.json` files. Existing files are validated and never overwritten. An ordinary scheduled or manual batch run creates the same profile in its local workspace before scanning. CI does not commit generated profiles to the protected source branch; maintainers persist repository-specific refinements through a PR. Newly discovered repositories can therefore run all common rules immediately.
-
-Each trusted central profile declares its repository identity, category, additive detector groups, applicable structural contracts, optional required paths and repository-specific local review tasks. Unknown fields, mismatched identities, untrusted policy sources and invalid relative paths fail validation. Profiles cannot disable the mandatory common detectors; applicable structural contracts are declared centrally. `required_paths` is empty by default; the existence of `src/`, `docs/`, root instructions or another particular path is never a universal prerequisite.
-
-Maintain repository-specific requirements in General-Auditor through reviewed changes. A target repository cannot replace the centrally selected profile or weaken common policy. Lico-Auditor and styio-audit are now private archives and are excluded from public discovery. Their dedicated profiles are removed; applicable shared and consumer policy remains in General-Auditor. Consumer migration PRs remain unmerged.
-
-## Local initialization
-
-Run from an installed or cloned General-Auditor:
+Run from a trusted General-Auditor checkout:
 
 ```sh
 python3 -m general_auditor init --repository ExampleOrg/ExampleRepo --directory ../ExampleRepo
 ```
 
-This adds `.general-auditor/config.json` and `.general-auditor/README.md` only when missing. It preserves existing custom configuration and all source/documentation layout. To use the local profile explicitly:
+Initialization preserves existing configuration and layout. The generated
+`.general-auditor/config.json` and local guide describe the repository. The
+`.general-auditor/local/` directory is reserved for private generated reports and
+review sidecars and must be ignored by Git. Existing unrelated ignore rules are
+preserved. Initialization must detect already tracked local-report files; adding
+an ignore entry cannot remove them from Git history or the index.
+
+For an existing tracked report, inspect the affected paths and use index-only
+untracking within the authorized cleanup scope. Preserve the working copy and
+independent historical records. Never delete a user's report merely to obtain a
+clean Git status. Once values have been published, local untracking does not
+retract prior copies.
 
 ```sh
-python3 -m general_auditor scan \
-  --repository ExampleOrg/ExampleRepo \
-  --directory ../ExampleRepo \
-  --scope worktree \
-  --profile ../ExampleRepo/.general-auditor/config.json \
-  --output out/audit.json
-
-python3 -m general_auditor review-request \
-  --scan out/audit.json \
-  --output out/review-request.json \
-  --template out/review-handoff.json
+python3 -m general_auditor scan --repository ExampleOrg/ExampleRepo --directory ../ExampleRepo --scope worktree
 ```
 
-Have the local Agent read the common policy, selected profile and redacted request, then inspect only the selected source scope locally before a push. `staged` audits the index; `worktree` reads current tracked files and non-ignored untracked files; run both when both views are outgoing. `snapshot` audits the selected committed tree, `range` requires `--base`, and `history` covers all commits reachable from the selected head. A supplied `--base` defaults to a range; without one, the default is a snapshot. Use `review-complete --scan out/audit.json --receipt out/review-receipt.json --output out/review-report.json --html out/review-report.html` after the local review. Receipts and reviewed reports are local-only; they do not prove Agent identity and must not be uploaded or published. Local hooks are optional convenience and do not guarantee review.
+The report is always written below the selected repository's Git root at
+`.general-auditor/local/`; caller-selected output paths are not supported.
+See the [local review guide](../general_auditor/templates/LOCAL-REVIEW.md) for
+contextual review and all supported scan scopes. Do not place exact matches in
+terminal output or send these local files to CI, chat or external services.
 
 ## Repository CI
 
 ```sh
-python3 -m general_auditor init \
-  --repository ExampleOrg/ExampleRepo \
-  --directory ../ExampleRepo \
-  --with-workflow
+python3 -m general_auditor init --repository ExampleOrg/ExampleRepo --directory ../ExampleRepo --with-workflow
 ```
 
-The additional template is packaged at `general_auditor/templates/workflow.yml`. It triggers on pushes and PRs, checks out complete candidate history, then runs the published `Unka-Malloc/General-Auditor@only` action. The action reads only this checkout and its matching central profile. It uses isolated Python imports, so a target repository cannot replace the auditor's modules by placing a same-named Python file in its tree. No target scripts are run.
+The template uses `Unka-Malloc/General-Auditor@only`, complete candidate history,
+read-only source permissions and isolated Python imports. It invokes the
+summary-only `check` path, not local report generation. It creates no audit
+artifact, HTML report or cloud upload. It never executes audited repository
+scripts. Exact source findings are available only through the owner's local scan.
 
-The `only` reference receives maintained common policy updates. First-party workflow identities follow their function and do not use version tags or version-named copies. Repositories requiring individually approved updates can replace it with a reviewed commit SHA. Public upstream PRs receive no paid Agent token and no cross-repository write credential. Private repositories keep results in their own CI context. The JSON output is redacted and classified private by default; the template does not send it to the public collector. The `general-auditor-report` workflow artifact contains JSON and a local HTML report with a table for every finding, retained for 30 days within the source repository's access boundary. The local CLI can also generate HTML with `--html out/audit.html`.
+Every continuing public upstream in the configured organizations requires this
+repository-scoped CI entry. Keep unrelated required checks and documented branch
+promotion routes. First-party workflow names describe their function; there are
+no Auditor version tags or version-named workflow copies. External Actions use
+reviewed immutable revisions.
 
-Every continuing public upstream in SymPolicy, Meshrix-Platform and LicoLand must use this General-Auditor CI entry. The initialization flag remains optional for other local/ad hoc repositories. Central discovery independently observes public heads and updates the shared HTML; it does not replace the required upstream workflow or make polling instantaneous. One repository event only scans that repository and its common/profile rules.
+## Profiles
+
+Profiles in General-Auditor are maintained through its protected PR process.
+Each declares the repository identity, category, additive detector groups,
+structural contracts and local review tasks. Unknown fields, mismatched identities
+and invalid paths fail validation. Target configuration cannot disable common
+policy or silently replace the trusted CI profile.
+
+The old Lico-Auditor and styio-audit sources are private archives. Their applicable
+shared and consumer checks remain here; no active source dependency on their
+packages or local clones is needed.

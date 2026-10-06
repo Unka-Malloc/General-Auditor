@@ -1,12 +1,10 @@
 # General-Auditor
 
-[简体中文](docs/README.zh-CN.md) · [Documentation](docs/README.md) · [Audit coverage and parity](docs/audit-coverage.md) · [Repository inventory](docs/repositories.md)
+[简体中文](docs/README.zh-CN.md) · [Documentation](docs/README.md) · [Audit coverage](docs/audit-coverage.md) · [Repository inventory](docs/repositories.md)
 
-General-Auditor provides mandatory common policy, repository-specific review requirements, and a single rolling audit report for every public repository in **SymPolicy**, **Meshrix-Platform**, and **LicoLand**.
+General-Auditor applies mandatory common policy and repository-specific checks across **SymPolicy**, **Meshrix-Platform**, and **LicoLand**. CI returns a safe status summary. Detailed audit reports are generated locally, with the actual matched source text and context visible to the owner.
 
-[Audit report](https://unka-malloc.github.io/General-Auditor/) · [Report artifacts](https://github.com/Unka-Malloc/General-Auditor/actions/workflows/publish-report.yml) · [Audit workflow runs](https://github.com/Unka-Malloc/General-Auditor/actions/workflows/audit.yml)
-
-Contextual privacy judgments belong to the contributor's local Agent before publication. CI collects deterministic advisory signals without invoking a paid Agent, validating credentials, or executing audited repositories. Pattern matches produce warnings and do not fail CI. Declared structural repository-contract violations fail the policy check; unavailable input, configuration and infrastructure failures are reported separately.
+Deterministic matches are **unreviewed candidates**, not confirmed disclosures. A contributor's local Agent evaluates their context. Privacy keywords remain advisory; declared structural contract failures and incomplete execution have separate failing statuses. CI does not invoke a paid Agent, validate credentials online, or execute audited source.
 
 ## Repository scope
 
@@ -16,66 +14,52 @@ Contextual privacy judgments belong to the contributor's local Agent before publ
 | Meshrix-Platform | 4 | 0 | 2 |
 | LicoLand | 9 | 1 | 4 |
 
-The [grouped inventory](docs/repositories.md) lists 30 public repositories and two retired private archives. The consumer migration has 38 open draft PRs across maintained branch targets; these PRs have not merged and do not establish that upstream default workflows have switched. Websites, standalone documentation, benchmarks and organization presentation repositories accept collaborator PRs only. An additional Ruleset restricts all branch changes to organization administrators and repository maintain/admin roles. Existing review and status-check rules continue to apply.
+The [grouped inventory](docs/repositories.md) lists all 30 continuing upstreams and two private archives. Websites, standalone documentation, benchmarks and organization presentation repositories have collaborator-only PR creation and maintainer-controlled branch changes. Independent review and status checks remain applicable.
 
-## Implemented behavior
+## Local reports
 
-- [Common policy](docs/common-policy.md) always applies. Each [repository profile](profiles/) adds its own review requirements; missing profiles use the same initialization defaults.
-- The [audit coverage ledger](docs/audit-coverage.md) maps retained Lico-Auditor and styio-audit check families to their General-Auditor rules, policy checks, tests, and deliberate replacements.
-- No fixed source, documentation, instruction-file or branch layout is required. Required paths are explicit repository-specific declarations.
-- Central CI discovers public branch and open-PR changes concurrently every 15 minutes. Each changed repository gets an independent workflow; slow repositories do not delay other scans or their saved results. A manual run selects one repository or explicitly selects `all`.
-- Initial branch scans inspect current snapshots. Subsequent scans inspect changed file versions in every outgoing commit, including content removed before the final head.
-- Each repository saves its result artifact on completion, then independently requests publication. A separate publisher merges durable results into one self-contained Pages HTML document and an Actions checkpoint, retaining the latest 30 days. An organization-grouped project sidebar selects the audit history, hit rules and paginated findings shown in the main panel. A daily refresh expires old entries even without source changes. Reports do not create source commits.
-- Report rows contain locations, rules, redacted categories, judgments and their basis, impact and recommendations. No source values or backend runtime records are copied into the report.
-- Publishing-category scans observe GitHub PR access and branch restrictions. Bypass identities hidden by GitHub's read-only API are marked unverified; administrator-side verification checks the complete configuration.
-
-GitHub schedules and hosted runners are subject to platform availability. CI does not guarantee pre-publication filtering or execution of local hooks. Binary files and other uninspected content are listed explicitly. Text blobs have no fixed scanner size cutoff; repository-specific file-size contracts remain independent. See [coverage and operational boundaries](docs/architecture.md).
-
-## Maintaining the Auditor
-
-`only` is the sole permanent branch. Designated maintainers use temporary `work/*` branches and PRs; direct pushes to `only` are prohibited, including administrator and bot pushes. Required checks, resolved discussions and linear squash history are enforced. External PR creation is disabled. See [contribution governance](docs/contributing.md).
-
-## Local usage
-
-Python 3.11+ and Git are required. The scanner has no third-party runtime dependencies.
+Python 3.11+ and Git are required; there are no third-party runtime dependencies.
+Run these commands from a trusted General-Auditor checkout:
 
 ```sh
-git clone https://github.com/Unka-Malloc/General-Auditor.git
-cd General-Auditor
 python3 -m general_auditor init --repository ExampleOrg/ExampleRepo --directory ../ExampleRepo
-python3 -m general_auditor scan --repository ExampleOrg/ExampleRepo --directory ../ExampleRepo --scope worktree --output out/audit.json
-python3 -m general_auditor review-request --scan out/audit.json --output out/review-request.json --template out/review-handoff.json
-# Ask your local Agent to fill handoff.receipt_template and save that object as out/review-receipt.json.
-python3 -m general_auditor review-complete --scan out/audit.json --receipt out/review-receipt.json --output out/review-report.json --html out/review-report.html
+python3 -m general_auditor scan --repository ExampleOrg/ExampleRepo --directory ../ExampleRepo --scope worktree
 ```
 
-`scan` supports `snapshot`, `range`, `history`, `staged`, and `worktree` scopes. A worktree scan reads tracked working files and non-ignored untracked files; a staged scan reads the index. Run both when both views are part of the outgoing change. `history` inspects all commits reachable from the selected head; `range` requires `--base <previous-commit>`. Without an explicit scope, `--base` selects a range and otherwise the scan uses a snapshot. CI uses immutable event commits and never examines a contributor's local files.
+Open `../ExampleRepo/.general-auditor/local/index.html` locally. The output directory is fixed under the target's Git root, even when invoked from a component directory. It contains the local report and its scan/review data and must remain ignored and untracked. Do not move these files into cloud storage, PR attachments, Actions artifacts or public logs.
 
-`review-request --template` writes a handoff envelope containing `receipt_template`. Complete that object and save it separately as the receipt passed to `review-complete`; do not pass the whole handoff envelope. After local contextual review, `review-complete` validates the receipt and writes a local-only JSON/HTML report. Receipts and reviewed reports stay local; they are not accepted as public CI results. Pattern signals remain `warning / unreviewed` and CI does not call a paid Agent or certify local review. A receipt checks its scan binding and completeness, but cannot prove who wrote it or establish that all sensitive content was removed.
+The self-contained report provides a repository sidebar, selected run/scope history, hit rules, source locations, actual matches and context. Exact values are authorized **inside those private files only**. HTML treats source as text, never executable markup. Previously retained redacted archives cannot supply missing original evidence; a new exact-scope scan is required.
 
-Initialization adds only missing files and preserves repository layout. Add `--with-workflow` for optional immediate repository-local CI. Its maintained first-party action entry is `Unka-Malloc/General-Auditor@only`; workflows use functional names, not version-named copies or Auditor version tags. Every continuing public upstream in the configured organizations must adopt the repository-local General-Auditor workflow. Central discovery can scan common rules without scaffolding, but does not replace that CI requirement. See [initialization](docs/initialization.md).
+| Scope | Source inspected |
+| --- | --- |
+| `snapshot` | Selected committed tree |
+| `range` | Outgoing commit versions between `--base` and `--head`, including transient content |
+| `history` | Every commit reachable from `--head` |
+| `staged` | Current Git index |
+| `worktree` | Tracked working files and non-ignored untracked files |
 
-## Central operations
+Run separate staged and worktree scans when both views matter. Exclusions and incomplete input remain visible; a scan with no matches does not prove safety. Local report/review commands refuse CI environments.
+
+For contextual judgments, follow the [local review guide](general_auditor/templates/LOCAL-REVIEW.md). Receipts remain bound to the selected scan and record evidence-based `false_positive`, `confirmed` or `uncertain` judgments; they do not attest Agent identity or create lasting rule exceptions.
+
+## Repository CI
 
 ```sh
-# Audit exactly one repository.
-gh workflow run audit.yml -R Unka-Malloc/General-Auditor -f repository=LicoLand/LicoArc
-
-# Explicitly audit all configured public repositories.
-gh workflow run audit.yml -R Unka-Malloc/General-Auditor -f repository=all -f force=true
-
-# Inspect declared publishing access policy using an administrator's gh session.
-python3 tools/configure_access.py
+python3 -m general_auditor init --repository ExampleOrg/ExampleRepo --directory ../ExampleRepo --with-workflow
 ```
 
-Inspect this Auditor’s own governance with `python3 tools/configure_auditor.py`. Both administration tools change settings only when explicitly invoked with `--apply`. Central CI has no cross-repository write credential and never mutates repository access. [Access-policy administration](docs/access-policy.md)
+The maintained action is `Unka-Malloc/General-Auditor@only`. It uses the summary-only `check` path for this repository's immutable candidate and trusted central profile. It writes no report and exposes no matched text. There is no central scheduled audit fanout, Pages report or cloud report upload. See [initialization](docs/initialization.md) for ignore rules and existing tracked-report handling.
 
-## Verification
+No standard source directory or branch layout is required. Common rules always apply; profiles add declared paths, structural contracts and review tasks. Every continuing upstream must adopt General-Auditor CI, preserving its own unrelated checks and branch promotion rules. Prepared migration PRs do not establish that default branches have switched.
+
+## Maintenance
+
+`only` is the sole permanent branch. Designated maintainers submit temporary `work/*` PRs; direct pushes, external PRs and version-named workflow copies are prohibited. See [contribution governance](docs/contributing.md).
 
 ```sh
 python3 tools/verify.py
+python3 tools/configure_auditor.py
+python3 tools/configure_access.py
 ```
 
-The verification entry point checks source syntax, rule/profile contracts, and deterministic tests using synthetic Git repositories and mocked GitHub settings. It does not start real Agent conversations.
-
-Policy coverage and source attribution are documented for [Lico-Auditor](https://github.com/LicoLand/Lico-Auditor) and [styio-audit](https://github.com/SymPolicy/styio-audit). Both former repositories are private and archived; their shared policy remains maintained here. Existing consumer branches may still reference the retired sources until the migration PRs and promotions land, and their old anonymous fetches can fail. See [policy sources](docs/policy-sources.md).
+Verification uses synthetic data. Administration commands are read-only unless explicitly given `--apply`; this documentation does not authorize remote changes. [Coverage](docs/audit-coverage.md) and [source attribution](docs/policy-sources.md) preserve applicable Lico-Auditor and styio-audit policy, with no runtime dependency on either private archive.

@@ -42,8 +42,8 @@ or private source content.
   framework is imposed on unrelated repositories. Obsolete multi-channel
   promotion workflows are not recreated as a universal policy.
 - A local false-positive judgment applies only to its exact scan and finding.
-  It does not create a lasting path/value exception. Shared reports contain
-  redacted scan findings, never local receipt reasoning or source snippets.
+  It does not create a lasting path/value exception. Exact source evidence and receipt reasoning remain in ignored local files.
+  CI emits only a safe status/count summary and produces no shared report.
 
 ## Source repository retirement
 

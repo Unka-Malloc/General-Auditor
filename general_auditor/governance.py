@@ -47,3 +47,29 @@ def finding(rule, description, head):
             "basis": "The observed GitHub setting differs from the repository category's declared policy.",
             "impact": "Unprivileged contributions or non-maintainer branch changes may be admitted.",
             "action": "A repository administrator should reconcile the declared access policy; CI never changes permissions."}
+
+
+def check_repository(repository, profile, head, *, api=None):
+    """Inspect only the selected repository's declared contribution controls.
+
+    Return source-free findings; unavailable metadata remains explicitly unverified.
+    Local source scans do not call this network-backed CI check implicitly.
+    """
+    from .config import MAINTAINER_CATEGORIES, repository_name
+    from .github import APIError, GitHub
+
+    repository_name(repository)
+    if profile.get("category") not in MAINTAINER_CATEGORIES:
+        return []
+    try:
+        issues = (api or GitHub()).access_policy(repository)
+    except APIError:
+        issues = [("governance.verification-unavailable", "GitHub access-policy metadata could not be verified.")]
+    findings = []
+    for rule, description in issues:
+        item = finding(rule, description, head)
+        if rule in {"governance.verification-unavailable", "governance.bypass-visibility"}:
+            item.update(judgment="unverified", basis=description,
+                        impact="The caller cannot verify the full access-policy configuration.")
+        findings.append(item)
+    return findings

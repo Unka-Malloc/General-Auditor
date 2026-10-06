@@ -1,7 +1,7 @@
-"""Portable source-free privacy detection shared by local and CI scans.
+"""Portable privacy detection shared by local and CI scans.
 
 Every match is an advisory location signal. The detector never validates a
-credential against a service and never returns matched text.
+credential against a service. Exact evidence requires explicit local opt-in.
 """
 
 from bisect import bisect_right
@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from .context import context_rules
 from .keys import key_rules
 from .paths import redact_path
+from .evidence import source_evidence
 from .providers import collect_provider_candidates, provider_rules
 from .types import Candidate, DetectorRule, RuleMetadata
 
@@ -142,8 +143,9 @@ def scan_text(
     *,
     profile: Mapping[str, object] | None = None,
     exceptions: Sequence[Mapping[str, object]] | None = None,
+    include_source: bool = False,
 ) -> dict[str, object]:
-    """Scan one decoded text blob and return source-free advisory findings.
+    """Scan decoded source; source-free unless local evidence is explicitly requested.
 
     `profile` must be selected by the central trusted policy loader. When
     `exceptions` is omitted, exact exceptions come only from that profile.
@@ -180,20 +182,25 @@ def scan_text(
                 continue
             line_index = bisect_right(line_starts, candidate.start) - 1
             findings.append({
-                "file": redact_path(path),
+                "file": path if include_source else redact_path(path),
                 "line": line_index + 1,
                 "column": candidate.start - line_starts[line_index] + 1,
                 "commit": None,
                 "rule": rule.id,
                 "category": rule.category,
                 "severity": "warning",
-                "evidence": "[source value withheld] " + rule.description,
+                "evidence": ("" if include_source else "[source value withheld] ") + rule.description,
                 "judgment": "unreviewed",
                 "basis": candidate.basis,
                 "impact": "Potential exposure or policy risk if contextual review confirms it.",
                 "action": rule.action,
                 "span": {"start": candidate.start, "end": candidate.end},
             })
+            if include_source:
+                evidence = source_evidence(text, start=candidate.start, end=candidate.end, line_starts=line_starts)
+                evidence["value_spans"] = [{"start": start, "end": end, "text": text[start:end]}
+                                           for start, end in candidate.value_spans]
+                findings[-1]["source_evidence"] = evidence
             finding_counts[rule.id] += 1
             topic = _SEMANTIC_BY_CATEGORY.get(rule.category)
             if topic:

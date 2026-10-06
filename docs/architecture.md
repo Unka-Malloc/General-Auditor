@@ -1,98 +1,101 @@
 # Architecture and operational boundaries
 
-## Components
+## Execution paths
 
-The implementation uses Python 3.11+ standard-library code, Git object reads, the GitHub REST API, GitHub Actions and GitHub Pages. No database, always-on server, model API or cross-repository write credential is required.
+General-Auditor uses Python 3.11+ standard-library code and Git reads. Common
+privacy detectors and the selected trusted repository profile share one scanner.
+Two explicit execution paths have different information boundaries:
 
-```mermaid
-flowchart LR
-  A[Concurrent public metadata discovery] --> B[Independent repository workflows]
-  B --> C[Common rules + this repository profile]
-  C --> D[Shared Git objects and bounded analysis cache]
-  D --> E[Immediate repository result artifacts]
-  E --> F[Independent report writer and 30-day checkpoint]
-  F --> G[One HTML report on Pages]
-  H[Contributor's local Agent] --> I[Contextual judgment before push]
-```
-
-## Inventory and routing
-
-The organization scope is defined once in `general_auditor/config.py`. Discovery includes all currently public repositories, including archived repositories and public forks. Default branches are discovered, never assumed to be `main`. Each current branch and open PR is observed; only a changed or new head is scheduled during automatic runs. A manual run selects exactly one repository or explicitly selects the entire inventory.
-
-Reading another repository's metadata is not an audit. A change to repository A does not schedule an unchanged repository B. Discovery processes up to eight repositories concurrently and dispatches each ready repository without waiting for slower metadata calls. Each dispatched repository has an independent GitHub workflow and concurrency group; the platform's runner quota limits how many execute simultaneously. The local batch command also processes up to eight repositories concurrently and persists each completed repository immediately.
-
-Candidate deduplication is scoped by repository, head and base. A repository fetches all selected immutable refs into one bare object store. Its branch scans reuse one blob reader and a standard-library LRU cache of up to 4,096 path/blob analyses. Cache entries contain signal metadata, not source values; each scan retains its own commit locations. The cache is released at repository completion. Report rendering groups runs once by repository rather than repeatedly searching the entire ledger.
-
-New repositories receive a workspace profile from the initialization defaults. Existing central profiles are validated and preserved. Maintainers persist refinements through a PR; workers never push generated profiles into the source branch. The initialization defaults require no particular directory, policy file or branch. A selected central profile can declare required paths, workflows and branch contracts; continuing upstream profiles require the General-Auditor workflow. Repository-supplied configuration is not silently trusted by central CI.
-
-Website, documentation, benchmark and organization-profile categories additionally select read-only GitHub access-policy observation. Settings are read once per selected repository and included in its report. Hidden bypass identities are reported as unverified; the separate administrator operation verifies the complete configuration. See [access-policy administration](access-policy.md).
-
-## Git coverage
-
-An initial branch audit reads that branch's current committed tree. It does not scan all prior history. Subsequent audits read changed file versions in every newly observed reachable commit. A PR starts from its base, resolving a common ancestor if the base advanced. Merge resolutions are included through first-parent diffs; introduced side-branch commits are also traversed. Duplicate path/blob pairs are read once per scan.
-
-After divergent history, a common ancestor is used when available. Unrelated histories produce an incomplete range scan; they are not silently treated as snapshot coverage. Local range scans reject shallow history rather than asserting complete range coverage. Deleted or inaccessible objects can produce an incomplete scan; a failed head is not acknowledged and is eligible for the next discovery run.
-
-The committed-tree scanner inspects UTF-8 Git blobs without a fixed text-size cutoff. Binary/non-UTF-8 files, symbolic-link targets, submodules and LFS payloads remain explicit uninspected coverage. A repository-specific source-size policy can reject an oversized file independently of privacy scanning. Central CI inspects commit authors, committers and attribution trailers for contributor-policy signals. It does not perform general privacy scanning of commit messages, PR titles, descriptions, comments or issue content, and does not inspect unstaged changes, untracked files or external runtime data. The local CLI has explicit `staged` and `worktree` scopes for outgoing local files and `history` for all commits reachable from a selected head. A directory inside a repository resolves to its Git root, so running from a component cannot silently omit sibling files. Staged/worktree scans also support an unborn branch and record a null baseline before the first commit. These are separate local operations, not promises that GitHub triggers a workflow on the contributor's machine. Regex and syntax-aware detectors remain incomplete advisory signals, not general secret-recognition or privacy proofs.
-
-## Local contextual review
-
-The local CLI can create a redacted request from a scan, including its exact scan identity, selected commit scope, findings, semantic tasks and a repository-relative file manifest when local scope is available. `review-request --template` renders a handoff envelope whose `receipt_template` object is completed and saved separately; `review-complete` validates one receipt against the same scan and writes a local-only report. The receipt keeps every finding judgment tied to its scan and cannot create persistent detector exceptions. Staged and worktree-only findings have no commit SHA and are explicitly bound using a null commit plus the scan's scope.
-
-The receipt records the reviewer-provided content only. It does not identify the author, prove that an Agent ran, establish that every privacy duty was performed, or certify the repository as safe. Common raw-source fields and recognized secret/path patterns are rejected, but redaction remains the contributor's responsibility. Requests, receipts and reviewed reports stay local and are not ingested by the shared report publisher.
-
-Public Git snapshots are fetched into isolated temporary bare repositories. No target build, dependency installer, hook, submodule initialization, action, script, template or Agent instruction is executed. Scanner Git processes do not inherit Git configuration or API credentials. Target source values and process stderr are withheld from results and logs.
-
-## Reports, persistence and retention
-
-These paths are generated workspace files, stored in the `audit-checkpoint` Actions artifact. The initial historical report records have been restored into a verified durable checkpoint, so generated reports are no longer tracked in Git. Actions artifacts are the retained data authority and Pages serves the single HTML entry:
-
-- `reports/index.html`: the single HTML report, deployed at the fixed Pages URL.
-- `reports/data.json`: retained redacted runs, deduplicated by run identity and pruned at the UTC 30-day boundary.
-- `reports/state.json`: successful branch/PR observations, per-repository observation times and consumed artifact identities. Failed heads are not acknowledged.
-- `reports/inventory.json`: current public scope, default branches and archive status.
-
-Each worker uploads `audit-result-<owner>--<repository>` as soon as that repository finishes. The packet contains only that repository's redacted 30-day ledger and observations. The worker restores its latest packet as well as the central checkpoint, so a delayed publisher does not force repeated scanning. A failed scanner saves its failure evidence before failing the workflow.
-Artifact-only workers persist JSON without rendering unused HTML. The publisher renders the shared report; local batch commands continue to generate their local HTML report.
-
-After the scan job finishes, an isolated notification job explicitly dispatches the publisher with the worker run identity. This works for workers started by `GITHUB_TOKEN`, whose completion events do not start another workflow. The publisher reads the actual trusted worker metadata and, if the notification job is still closing, the completed scan job's outcome. The notification carries no supplied scan outcome and never waits for publication. A notification failure leaves the saved result available for reconciliation.
-
-The publisher restores the latest checkpoint and coalesces completed repository packets. It records consumed workflow-run identities so queued notifications for already merged runs can skip repeated archive discovery. Scheduled and manual reconciliation recovers durable packets whose completion notification was missed. It merges run identities and updates observations only from a newer per-repository observation time. Result identity and public scope are checked before ingestion. Artifact restoration admits only executions from this repository's protected `only` branch; PR and fork artifacts are excluded. Archives are read by exact JSON member name and never extracted or executed.
-
-One publication concurrency group serializes the shared state update. Scanners do not wait for that group or for Pages. The complete checkpoint is uploaded before deployment, preserving successful scans if Pages fails. Duplicate completion events skip a deployment when they have no new results, expired records or inventory changes. Scheduled and manual publication refreshes also reconcile missed results. One bad repository is represented as an incomplete scan; it does not stop other repository workflows.
-
-The report includes each finding individually: location, rule, withheld-value category, `unreviewed` judgment and basis, potential impact and handling recommendation. It also lists explicit exclusions, infrastructure failures and repository-specific Agent review requirements. Source snippets are never copied. Suspected sensitive path components are masked; such locations do not become source links.
-
-The report's left sidebar groups projects by organization. The right panel shows the selected project's audit history and only the rules actually hit in its selected run, with counts tied to that run's visible timestamp, scope and commit. Finding occurrences are not confirmed leaks and can recur across retained history. Switching projects or runs replaces the previous detail view; findings and exclusions use 50-row pages. Every retained field remains available in the complete run inspector; pagination does not truncate findings.
-
-The self-contained HTML losslessly interns repeated JSON values within each run and embeds independently compressed gzip/base64 records. A current browser with native `DecompressionStream` support decodes only the selected run, without network requests or external libraries. Unselected histories stay compressed, and a late decode cannot replace a newer selection. The canonical checkpoint ledger stays ordinary JSON. For complete offline inspection, parse the `audit-data` JSON element and pass it to `general_auditor.report.unpack_report`, which reconstructs every retained field and run.
-
-Current visibility is rechecked on every discovery and publication run. An inventory change immediately requests publication without scanning removed repositories. The publisher removes results for repositories no longer public from the current ledger and HTML and rejects records marked private. Local scans default to private and are not uploaded to the central report.
-
-The current HTML and ledger contain only the rolling window. Every publication prunes expired runs; a daily publication handles idle periods. Checkpoint and repository-result artifacts expire 30 days after creation, while the Pages upload artifact expires after one day. Prior artifact snapshots, Git history, workflow logs, downloaded copies and external caches are not retroactively rewritten when the current ledger is pruned. Reports are redacted before first publication. If all retained checkpoints and repository packets have expired after extended inactivity, collection starts new snapshot coverage instead of claiming an unavailable historical range.
-
-## Workflow behavior
-
-| Workflow | Trigger | Responsibility |
+| Path | Output | Permitted environment |
 | --- | --- | --- |
-| `audit.yml` | Every 15 minutes or explicit dispatch | Discover changed repositories and dispatch independent workers. Manual runs can force a selected repository or all public repositories. |
-| `audit-repository.yml` | Dispatcher or explicit maintainer dispatch | Restore observations, inspect one repository, upload its result, then independently request publication. |
-| `publish-report.yml` | Worker notification dispatch, report implementation changes, daily schedule or explicit dispatch | Reconcile durable results, expire records, upload the checkpoint and deploy one HTML document. |
+| `check` / repository CI action | Status and counts only; no report files or matched source | CI or local engineering checks |
+| `scan`, local review and HTML | Actual selected source matches, context, locations and judgments in fixed private files | Local use only; CI environments are rejected before source access |
 
-All execute trusted code from `only`. `queue: max` preserves pending runs; only repeated scans of the same repository share a scan queue. Source changes run verification and do not trigger a full inventory audit. The dispatcher has Actions write permission to dispatch workers. Scanners have read-only source and Actions access. The separate notification job has only Actions write permission and does not check out or execute target source. The publisher has read-only source/Actions access plus Pages and identity-token permissions. None has source-write permission or a Ruleset bypass. No private cross-repository credential or paid Agent token is supplied.
+There is no hosted report service, central repository fanout or cloud report
+upload. One repository's event checks only that repository. Publishing access
+administration remains a distinct authorized operation; it is not a report job.
 
-Privacy and keyword warnings never fail scanning. A declared structural repository-contract violation produces `policy_failure`; unreadable required input or an execution failure produces `incomplete`. Neither status is a privacy judgment. A worker that fails before producing an artifact can produce a workflow-failure report entry; its unacknowledged heads remain eligible for discovery. If discovery or artifact access fails entirely, that workflow fails without claiming a fresh scan. Required source checks and PR protection are separate from audit warnings.
+## Policy and source trust
 
-Scheduled Actions can be delayed or dropped under platform load, and public repositories with no activity can have schedules disabled by GitHub. Branches or PRs created and removed entirely between observations may not be seen. Queue capacity, platform execution limits, API availability and repository access also apply. This design does not promise a local hook, pre-publication filtering or delivery of every transient event. Optional repository-local workflows provide immediate advisory feedback but cannot guarantee contributor compliance.
+Common rules cannot be disabled by a target repository. Profiles under
+`profiles/<owner>/<repository>.json` add repository-specific contracts, detector
+groups and semantic tasks. Missing profiles use layout-independent initialization
+defaults. Required paths are explicit profile declarations, never universal
+assumptions about `src`, `docs`, README or branch names. A local profile override
+is explicit; CI selects policy from its trusted Auditor source.
 
-## Private repositories
+Audits read source as data. They do not execute target build scripts, hooks,
+submodules, templates, Actions or Agent instructions. Git inputs do not gain
+execution authority because a local Agent reads them. Keep API credentials and
+Git process diagnostics out of finding output.
 
-Private repositories can use the local CLI or optional CI action, selecting the common fallback and an explicit local profile when needed. The three-organization public collector deliberately excludes them. Private results must remain in private local or CI storage; a separate private General-Auditor deployment would need an explicitly scoped authenticated reader and private report hosting. The public Pages workflow is not a private-report solution.
+## Scope and locations
 
-## Platform references
+`snapshot` reads the selected committed tree. `range` reads changed versions in
+outgoing commits, including content deleted before the final head; it requires a
+base and uses the common ancestor when appropriate. Unrelated or shallow history
+cannot silently become complete range coverage. `history` reads all commits
+reachable from the selected head. Repeated path/blob analyses can be reused, but
+every finding retains its actual occurrence location and commit.
 
-- [GitHub workflow events and schedule limitations](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)
-- [GitHub token event restrictions and explicit dispatch](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)
-- [GitHub workflow concurrency and queued runs](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
-- [GitHub REST repository API](https://docs.github.com/en/rest/repos/repos)
-- [Native browser decompression](https://developer.mozilla.org/en-US/docs/Web/API/DecompressionStream)
+`staged` reads the index, independently of unstaged changes. `worktree` reads
+tracked working files and non-ignored untracked files. Both support an unborn
+branch and use a null commit when no committed version exists. Invoking from a
+subdirectory resolves the Git root rather than omitting sibling source.
+
+Text blobs have no fixed scanner size cutoff. Binary/non-UTF-8 files, symlink
+targets, submodules and LFS payloads remain explicit uninspected coverage unless
+an applicable implementation actually reads them. Source-size contracts are
+independent structural checks. Commit attribution policy does not imply general
+privacy inspection of every commit message, PR title, issue or external runtime
+record. Local review must state any requested coverage gap concretely.
+
+## Exact local evidence
+
+A local finding shows actual matched source from its selected version, its
+repository-relative file, line, commit when applicable, context and rule
+explanation. Preserve exact spelling and source content. Structural findings
+without a source match must say so; do not synthesize an original value.
+Unreviewed signals remain candidates until contextual evidence supports a
+judgment. Source unavailable from an old redacted archive remains unavailable,
+not a reconstructed or supposedly verified original.
+
+HTML escapes source content and uses safe text rendering. The report is
+self-contained and keeps organization/repository navigation, run/scope selection,
+actual hit rules and per-finding detail. Changing the selected run must not leave
+another run's context or judgment visible. Local source excerpts never enter CI
+summaries, annotations, public links, PR descriptions or external validation APIs.
+
+## Local persistence and review
+
+The sole generated root is `<Git root>/.general-auditor/local/`, ignored by Git.
+`scan.json`, `history.json` and `index.html` hold the latest scan, retained runs
+and report. `review-request.json`, `review-handoff.json`, `review-receipt.json`,
+`receipt-history.json`, `review.json` and `review.html` hold local review data.
+Retained local history is not governed by the retired hosted 30-day expiry job;
+cleanup requires an explicit local decision and must preserve user data.
+
+Initialization adds the ignore rule without replacing unrelated ignore content.
+Already tracked files remain tracked despite an ignore rule: detect that state,
+remove them from the index while preserving working files when authorized, and
+never represent `.gitignore` alone as upload prevention. Owned CI workflows must
+contain no raw-report producers or upload steps.
+
+The local request and receipt are bound to a scan, its scope, findings and
+semantic tasks. Review records source-supported `false_positive`, `confirmed`
+and `uncertain` judgments, with concrete evidence, impact and handling. A receipt
+checks the binding and completeness; it cannot prove who wrote it, that an Agent
+ran, or that all sensitive information has been found. Exact private evidence
+may be retained in these local files, but must not be echoed in conversation.
+
+Prior redacted hosted records are independent historical data. Preserve their
+existing meaning and limitations locally; do not keep the retired publisher or
+claim those records contain source text that was never stored.
+
+## Verification
+
+`python3 tools/verify.py` exercises the implementation with synthetic repositories
+and source values. Tests cover local source fidelity, exact locations, selected
+scopes, persistence, review binding, safe HTML rendering and summary-only CI.
+Real Agent judgments are a separate user-assigned workflow, not a replacement
+for engineering checks. Actual upstream CI execution is distinct from an open PR.

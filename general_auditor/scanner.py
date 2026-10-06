@@ -1,4 +1,4 @@
-"""Deterministic advisory scanning. Source values never enter result records."""
+"""Deterministic scans, source-free by default and exact-evidence only by local opt-in."""
 
 from datetime import datetime, timezone
 from contextlib import nullcontext
@@ -15,6 +15,7 @@ from .repository_policy import evaluate, evaluate_data_files, evaluate_contribut
 from copy import deepcopy
 import os
 import stat
+from .detection.evidence import source_evidence
 from .rules import CODE_SUFFIXES, COMPILED, matches, selected_rules
 
 
@@ -47,10 +48,11 @@ def finding(path, line, revision, rule, *, basis=None):
 
 
 class BlobAnalysis:
-    """Bounded per-repository LRU of redacted analysis, shared across branch scans."""
+    """Per-repository analysis cache isolated by explicit source-disclosure mode."""
 
-    def __init__(self, root, rules, profile=None):
+    def __init__(self, root, rules, profile=None, *, include_source=False):
         self.root, self.rules, self.profile = root, rules, profile or {}
+        self.include_source = include_source
         self.inspect = lru_cache(maxsize=4096)(self._inspect)
 
     def __enter__(self):
@@ -78,16 +80,24 @@ class BlobAnalysis:
         return self.inspect_text(path, text, size)
 
     def inspect_text(self, path, text, size):
-        detected = scan_text(text, path, profile=self.profile)
+        detected = scan_text(text, path, profile=self.profile, include_source=self.include_source)
         hits = detected["findings"]
         def add_attribution(rule, candidate_path, message, **options):
-            hits.append(_public_finding(rule, candidate_path, None, message, **options))
-        evaluate_contribution_text(path, text, add_attribution, lambda rule: None)
+            evidence = options.pop("source_evidence", None)
+            item = _public_finding(rule, candidate_path, None, message, include_source=self.include_source, **options)
+            if evidence is not None: item["source_evidence"] = evidence
+            hits.append(item)
+        evaluate_contribution_text(path, text, add_attribution, lambda rule: None, include_source=self.include_source)
+        starts = [0] + [i + 1 for i, char in enumerate(text) if char == "\n"] if self.include_source else None
         for rule, regex in self.rules:
             if not applies(rule, path):
                 continue
             for match in matches(rule, regex, text):
-                hits.append(finding(path, text.count("\n", 0, match.start()) + 1, None, rule))
+                item = finding(path, text.count("\n", 0, match.start()) + 1, None, rule)
+                if self.include_source:
+                    item.update(file=path, evidence=rule.description, column=match.start() - text.rfind("\n", 0, match.start()),
+                                source_evidence=source_evidence(text, start=match.start(), end=match.end(), line_starts=starts))
+                hits.append(item)
         return None, size, detected
 
 
@@ -113,6 +123,7 @@ def _worktree_read(root, raw_path):
 
 
 def _decode(data):
+    if data is None: return None
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
@@ -123,8 +134,11 @@ def _decode(data):
 
 
 def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=None,
-         visibility="private", trigger="local", analysis=None, scope=None, event=None):
+         visibility="private", trigger="local", analysis=None, scope=None, event=None, include_source=False):
     repository_name(repository)
+    if analysis is not None and analysis.include_source != include_source:
+        raise ValueError("Shared analysis source mode does not match the scan")
+    display_path = (lambda path: path) if include_source else safe_path
     if visibility not in {"public", "private"}:
         raise ValueError("Invalid visibility")
     if profile is None:
@@ -159,6 +173,7 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
     rules = selected_rules(profile.get("additional_rule_groups", []))
     result = {
         "id": str(uuid4()), "repository": repository, "visibility": visibility,
+        "source_mode": "local_raw" if include_source else "source_free",
         "started_at": utc_now(), "finished_at": None, "head": head, "base": base,
         "trigger": trigger, "scope": scope, "profile_source": profile_source,
         "rule_ids": [rule.id for rule in rule_catalog()] + [rule.id for rule, _ in rules],
@@ -185,13 +200,21 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
             for key in ("author", "committer"):
                 match = re.search(r"(?m)^" + key + r" (.*)$", headers)
                 record[key] = match.group(1) if match else ""
+            if include_source: record["source_text"] = os.fsdecode(raw)
             metadata["commit_metadata"].append(record)
     seen, topics, review_files = set(), {}, {}
     local_rows = list(index_tree(root)) if selected_scope == "staged" else list(worktree_tree(root)) if selected_scope == "worktree" else None
     candidates = list(tree(root, head)) if local_rows is None else local_rows
     head_objects = {row[0]: row[3] for row in candidates}
     historical_policy = {"findings": [], "evaluated": set(), "exempted": [], "incomplete": []}
-    with (nullcontext(analysis) if analysis is not None else BlobAnalysis(root, rules, profile)) as analyzer:
+    with (nullcontext(analysis) if analysis is not None else BlobAnalysis(root, rules, profile, include_source=include_source)) as analyzer:
+        snapshots = {}
+        def captured_worktree(row):
+            path = row[0]
+            if path not in snapshots:
+                snapshots[path] = _decode(_worktree_read(root, row[5]))
+            return snapshots[path]
+
         for revision in revisions:
             changed = None
             if selected_scope == "range":
@@ -205,7 +228,8 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
                     continue
                 seen.add((path, oid))
                 if selected_scope == "worktree":
-                    text = _decode(_worktree_read(root, row[5])) if mode != "120000" and kind == "blob" else None
+                    text = captured_worktree(row) if mode != "120000" and kind == "blob" else None
+                    if text is None and path in snapshots: snapshots[path] = None
                     reason, inspected_bytes, detected = analyzer.inspect_text(path, text, len(text.encode("utf-8"))) if text is not None else ("symbolic link, external submodule or non-text content", 0, {})
                 else:
                     reason, inspected_bytes, detected = analyzer.inspect(path, mode, kind, oid, size)
@@ -218,7 +242,7 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
                             text_cache[candidate_path] = _decode(analyzer.blobs.read(oid)) if kind == "blob" and mode != "120000" else None
                         text = text_cache[candidate_path]
                         if text is None:
-                            historical_policy["incomplete"].append({"rule": rule, "path": safe_path(candidate_path), "commit": revision, "reason": "historical text unavailable"})
+                            historical_policy["incomplete"].append({"rule": rule, "path": display_path(candidate_path), "commit": revision, "reason": "historical text unavailable"})
                         return text
                     def historical_add(rule, candidate_path, message, **options):
                         if rule == "repository.json-not-allowlisted" and candidate_path not in head_objects:
@@ -231,11 +255,16 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
                                 pass
                             else:
                                 options["severity"] = "warning"
-                        historical_policy["findings"].append(_public_finding(rule, candidate_path, revision, message, **options))
+                        item = _public_finding(rule, candidate_path, revision, message, include_source=include_source, **options)
+                        if include_source:
+                            actual = _decode(analyzer.blobs.read(oid)) if kind == "blob" and mode != "120000" else None
+                            item["source_evidence"] = source_evidence(actual, line=item.get("line")) if actual is not None else {"kind": "derived"}
+                            item["source_evidence"]["provenance"] = {"scope": selected_scope, "commit": revision, "object": oid, "source_kind": "git_blob"}
+                        historical_policy["findings"].append(item)
                     evaluate_data_files(profile, {path: dict(zip(("path", "mode", "kind", "oid", "size"), row[:5]))},
                                         historical_read, historical_add, historical_policy["evaluated"].add, historical_policy["exempted"])
-                location = {"file": safe_path(path), "commit": revision, "object": oid, "mode": mode}
-                review_file = review_files.setdefault(safe_path(path), {"path": safe_path(path), "commits": [], "states": {}})
+                location = {"file": display_path(path), "commit": revision, "object": oid, "mode": mode}
+                review_file = review_files.setdefault(display_path(path), {"path": display_path(path), "commits": [], "states": {}})
                 if revision is not None and revision not in review_file["commits"]:
                     review_file["commits"].append(revision)
                 state = "excluded" if reason else "inspected"
@@ -249,17 +278,34 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
                     located = {**deepcopy(item), "commit": revision}
                     if "span" in located:
                         located.update(located.pop("span"))
+                    if include_source and "source_evidence" in located:
+                        located["source_evidence"]["provenance"] = {
+                            "scope": selected_scope, "commit": revision, "object": oid,
+                            "source_kind": "worktree_snapshot" if selected_scope == "worktree" else "index_blob" if selected_scope == "staged" else "git_blob"}
                     result["findings"].append(located)
-                result["coverage"]["privacy"]["finding_counts"].extend({**item, "file": safe_path(path), "commit": revision} for item in detected["coverage"]["finding_counts"])
-                result["coverage"]["privacy"]["exempted"].extend({**item, "file": safe_path(path), "commit": revision} for item in detected["coverage"]["exempted"])
+                result["coverage"]["privacy"]["finding_counts"].extend({**item, "file": display_path(path), "commit": revision} for item in detected["coverage"]["finding_counts"])
+                result["coverage"]["privacy"]["exempted"].extend({**item, "file": display_path(path), "commit": revision} for item in detected["coverage"]["exempted"])
                 topics.update({topic["id"]: topic for topic in detected["semantic_review"]})
         rows_by_path = {row[0]: row for row in candidates}
         def read_text(path):
             row = rows_by_path[path]
             if row[1] == "120000" or row[2] != "blob":
                 return None
-            return _decode(_worktree_read(root, row[5]) if selected_scope == "worktree" else analyzer.blobs.read(row[3]))
-        policy = evaluate(repository, profile, [dict(zip(("path", "mode", "kind", "oid", "size"), row[:5])) for row in candidates], read_text, metadata)
+            return captured_worktree(row) if selected_scope == "worktree" else _decode(analyzer.blobs.read(row[3]))
+        policy = evaluate(repository, profile, [dict(zip(("path", "mode", "kind", "oid", "size"), row[:5])) for row in candidates], read_text, metadata, include_source=include_source)
+        if include_source:
+            commit_sources = {item["commit"]: item.get("source_text") for item in metadata["commit_metadata"]}
+            for item in policy["findings"]:
+                evidence = item.setdefault("source_evidence", {"kind": "derived"})
+                row = rows_by_path.get(item["file"])
+                source_kind = "worktree_snapshot" if selected_scope == "worktree" else "index_blob" if selected_scope == "staged" else "git_blob"
+                object_id = row[3] if row else None
+                if item["file"] == "<commit-metadata>":
+                    source = commit_sources.get(item["commit"])
+                    if source is not None:
+                        evidence.update(kind="derived", context={"text": source, "start_line": 1, "end_line": max(1, len(source.splitlines()))})
+                    source_kind, object_id = "git_commit", item["commit"]
+                evidence["provenance"] = {"scope": selected_scope, "commit": item.get("commit"), "object": object_id, "source_kind": source_kind if row or object_id else "policy_evaluation"}
     policy["findings"].extend(historical_policy["findings"])
     if result["coverage"]["text_versions"]:
         historical_policy["evaluated"].add("contribution.cursor-attribution")
@@ -268,13 +314,13 @@ def scan(root, repository, *, head="HEAD", base=None, policy_root=".", profile=N
     policy["coverage"]["exempted"].extend(historical_policy["exempted"])
     policy["coverage"]["incomplete"].extend(historical_policy["incomplete"])
     for item in policy["findings"]:
-        item["file"] = safe_path(item["file"])
+        item["file"] = display_path(item["file"])
     for item in policy["coverage"].get("incomplete", []):
         if "path" in item:
-            item["path"] = safe_path(item["path"])
+            item["path"] = display_path(item["path"])
     for item in policy["coverage"].get("exempted", []):
         if "path" in item:
-            item["path"] = safe_path(item["path"])
+            item["path"] = display_path(item["path"])
     attribution_locations = {(item["file"], item["commit"], item["rule"], item["line"]) for item in result["findings"] if item["rule"] == "contribution.cursor-attribution"}
     result["findings"].extend(item for item in policy["findings"] if (item["file"], item["commit"], item["rule"], item["line"]) not in attribution_locations)
     result["coverage"]["policy"] = policy["coverage"]
