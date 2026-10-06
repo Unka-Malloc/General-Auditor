@@ -28,7 +28,7 @@ CONTRACT_PREFIXES = ("repository.", "workflow.", "contribution.", "governance.",
 
 # How many distinct matched values one group shows. Decisions show the full
 # distinct set up to this cap; cleared groups show only a spot-check sample.
-MAX_DECISION_VALUES = 60
+MAX_DECISION_VALUES = 100000  # the closing report keeps every distinct decision value
 MAX_CLEARED_VALUES = 8
 MAX_LOCATIONS = 4
 LINE_WINDOW = 240

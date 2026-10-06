@@ -37,6 +37,9 @@ def parser():
         command.add_argument("--directory", default=".")
     triage = commands.add_parser("triage", help="Classify one saved local scan deterministically, without a model")
     triage.add_argument("--directory", default=".")
+    fleet = commands.add_parser("fleet", help="Triage every repository below a root and write one closing report")
+    fleet.add_argument("--root", required=True, help="Audit root containing <Organization>/<Repository> checkouts")
+    fleet.add_argument("--output", help="Report path; must stay outside a Git working tree")
     return root
 
 
@@ -58,7 +61,7 @@ def _exit_status(result):
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        if args.command in {"scan", "review-request", "review-complete", "triage"}:
+        if args.command in {"scan", "review-request", "review-complete", "triage", "fleet"}:
             _local_only()
         if args.command == "init":
             created = initialize(args.directory, args.repository, profile_only=args.central_profile,
@@ -99,6 +102,19 @@ def main(argv=None):
         from .local_store import LocalStore
         from .review import create_review_request, render_review_template, complete_review
         from .report import render_review
+        if args.command == "fleet":
+            from .fleet import run as run_fleet
+            result = run_fleet(args.root, args.output)
+            totals = result["totals"]
+            print(json.dumps({"status": "fleet_report", "report": result["report"],
+                              "repositories": len(result["projects"]),
+                              "findings": totals.get("findings", 0),
+                              "decisions": totals.get("decisions", 0),
+                              "decision_groups": totals.get("decision_groups", 0),
+                              "decision_distinct_values": totals.get("decision_distinct_values", 0),
+                              "contracts": totals.get("contracts", 0),
+                              "cleared": totals.get("cleared", 0)}))
+            return 0
         if args.command == "triage":
             from .triage import render_triage, triage
             store = LocalStore(args.directory)

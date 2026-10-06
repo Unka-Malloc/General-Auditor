@@ -18,6 +18,14 @@ Read `docs/contributing.md`, `docs/architecture.md` and `docs/common-policy.md`.
   reconstruct an original value from a redacted archive or fabricate a match.
   Deterministic matches are unreviewed candidates; contextual review supplies
   confirmed, false-positive or concrete uncertain judgments.
+- Only the maintained report may be shown to a developer. The single closing
+  report is the file that one pass of
+  `python3 -m general_auditor fleet --root ROOT` writes over the saved local
+  scans; present that file and nothing else. Never hand-assemble, re-render,
+  summarise into a substitute file or leave a competing temporary report beside
+  it, and never regenerate one by hand to answer a question. If the maintained
+  report is missing or stale, re-run that command. Its unredacted content stays
+  outside version control.
 - Keep English engineering documentation and the separate Chinese overview
   current. Preserve source attribution and independent historical assets.
 - Finish scoped fixes and source review, then run `python3 tools/verify.py`.

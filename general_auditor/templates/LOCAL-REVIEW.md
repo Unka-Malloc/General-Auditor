@@ -60,6 +60,23 @@ performed, is scoped to the reported decision groups; a cleared group is not a
 reviewed group. Re-run triage after a new scan; its classes are bound to that
 scan's findings.
 
+## Closing report
+
+A fleet audit closes with one maintained report, never a hand-made one:
+
+```sh
+python3 -m general_auditor fleet --root /path/to/audit-root
+```
+
+One pass triages every `<Organization>/<Repository>` below the root that has a
+saved local scan and writes a single `fleet-report.html`: projects grouped by
+organization on the left, the selected project's real matches on the right. Show
+that file to a developer and nothing else. Do not assemble, re-render or
+summarise a substitute report, and do not leave a competing temporary report
+beside it; if it is missing or stale, re-run the command. The report contains
+unredacted text from the audited repositories, so it stays outside version
+control.
+
 ## Contextual review
 
 Generate the request for the latest local scan:
