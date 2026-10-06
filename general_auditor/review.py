@@ -186,6 +186,21 @@ def _binding(scan: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _repository_relative(path: str, *, directory: bool) -> None:
+    """Reject locations that cannot belong to the selected tree.
+
+    Structural policy findings may locate a missing contract on a directory
+    prefix such as `docs/specs/`, so one trailing separator is allowed exactly
+    where the caller expects a directory location.
+    """
+    parts = path.split("/")
+    if directory and parts[-1] == "":
+        parts = parts[:-1]
+    if (PurePosixPath(path).is_absolute() or "\\" in path or not parts
+            or any(part in {"", ".", ".."} for part in parts)):
+        raise ValueError("Path must stay inside the selected repository tree")
+
+
 def _finding_identity(finding: Any) -> dict[str, Any]:
     if not isinstance(finding, dict):
         raise ValueError("Invalid scan finding")
@@ -227,9 +242,10 @@ def _finding_identity(finding: Any) -> dict[str, Any]:
         raise ValueError("Invalid scan finding span")
     if identity.get("line") is not None and identity.get("end_line") is not None and identity["end_line"] < identity["line"]:
         raise ValueError("Invalid scan finding line range")
-    parsed = PurePosixPath(path)
-    if parsed.is_absolute() or "\\" in path or any(part in {"", ".", ".."} for part in path.split("/")):
-        raise ValueError("Scan finding location must be repository relative")
+    try:
+        _repository_relative(path, directory=True)
+    except ValueError:
+        raise ValueError("Scan finding location must be repository relative") from None
     return deepcopy(identity)
 
 
@@ -286,9 +302,11 @@ def _review_files(scan: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(item, dict) or set(item) != {"path", "commits", "states"}:
             raise ValueError("Local review files require path, commits, and states")
         path = _required_text(item.get("path"), "review file path")
+        try:
+            _repository_relative(path, directory=False)
+        except ValueError:
+            raise ValueError("Review file path must be repository relative") from None
         parsed = PurePosixPath(path)
-        if parsed.is_absolute() or "\\" in path or any(part in {"", ".", ".."} for part in path.split("/")):
-            raise ValueError("Review file path must be repository relative")
         if path in seen:
             raise ValueError("Local review file paths must be unique")
         seen.add(path)
@@ -392,9 +410,11 @@ def _validate_additional(item: Any) -> dict[str, Any]:
     if not isinstance(item, dict) or set(item) != fields:
         raise ValueError("Invalid additional finding; include location and judgment fields only")
     path = _required_text(item.get("path"), "additional finding path")
+    try:
+        _repository_relative(path, directory=False)
+    except ValueError:
+        raise ValueError("Additional finding path must be repository relative") from None
     parsed = PurePosixPath(path)
-    if parsed.is_absolute() or "\\" in path or any(part in {"", ".", ".."} for part in path.split("/")):
-        raise ValueError("Additional finding path must be repository relative")
     if type(item.get("line")) is not int or item["line"] < 1:
         raise ValueError("Additional finding requires a positive source line")
     commit_id = item.get("commit")
